@@ -1,0 +1,9 @@
+node_modules
+dist
+tools
+.git
+.atl
+.playwright-mcp
+src
+public
+*.md

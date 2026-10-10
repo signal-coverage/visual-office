@@ -1,0 +1,1 @@
+export { VoiceIndicator } from "./VoiceIndicator";

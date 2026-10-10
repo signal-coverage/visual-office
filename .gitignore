@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local dev binaries (LiveKit server) and browser tool output
+tools/
+.playwright-mcp/

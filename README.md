@@ -1,78 +1,168 @@
-# React + TypeScript + Vite
+# Visual Office
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A first-person 3D virtual office that runs in the desktop browser. Walk around, chat with text,
+and talk by voice with whoever is standing near you (volume fades with distance).
 
-Currently, two official plugins are available:
+Think WorkAdventure, but in 3D.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
 
-## React Compiler
+- First-person movement (WASD + mouse look, Shift to run) with wall and furniture collisions
+- Multiplayer presence: other people appear as animated avatars with name tags
+- Text chat (Enter)
+- Proximity voice chat (M): full volume within 2 m, silent beyond 10 m
+- Proximity video (C): a camera feed floats above the avatar of whoever is within 6 m
+- Your own 3D models: drop a `.glb` in `public/models/` and add one line, see [docs/MODELING.md](docs/MODELING.md)
+- Server-side referee: speed limits and collisions are checked on the server
+- Diagnostics panel (F3): FPS, worst frame, GPU and server corrections, to find out why it feels slow
+- Lobby with a name, automatic reconnection and clear disconnect handling
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+Desktop browsers only. There is no mobile support.
 
-Note: This will impact Vite dev & build performances.
-You can also try [the experimental native React Compiler support in plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md#rust-react-compiler) by using `compiler: true` in the plugin options instead of using the Babel plugin.
+## Quick start
 
-## Expanding the ESLint configuration
+Requirements: Node.js 24 (LTS) or newer.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+npm run dev:all
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Open <http://localhost:5173>, pick a name and enter. Open a second tab (or share the link on your
+network) to see another player. A link like `http://localhost:5173/?name=Ana` skips the lobby.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+`dev:all` starts three processes:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Process | What it is                                    | Port |
+| ------- | --------------------------------------------- | ---- |
+| `web`   | Vite dev server (the client)                  | 5173 |
+| `game`  | Colyseus game server (rooms, positions, chat) | 2567 |
+| `voice` | Local LiveKit server (voice only)             | 7880 |
 
+### Voice in development
+
+Voice needs a LiveKit server. `npm run livekit` runs `livekit-server --dev`, looking first in
+`tools/livekit/` and then on your `PATH`. Install it from
+<https://docs.livekit.io/home/self-hosting/local/> (for example `brew install livekit` on macOS) or
+put the binary in `tools/livekit/` (git-ignored). If it is missing, everything else still works and
+the voice button simply does not appear. Voice and video share the same call, so both need it.
+
+Use headphones when testing with two tabs on one machine, or you will hear an echo.
+
+## Controls
+
+| Key     | Action                                                                                |
+| ------- | ------------------------------------------------------------------------------------- |
+| Click   | Capture the mouse                                                                     |
+| W A S D | Move                                                                                  |
+| Shift   | Run                                                                                   |
+| Mouse   | Look around                                                                           |
+| Enter   | Open the chat, then Enter to send (Esc to cancel)                                     |
+| F3      | Show / hide the diagnostics panel (also `?debug` in the link)                         |
+| M       | Join voice, then mute / unmute                                                        |
+| C       | Camera on / off. If you are not in the call yet, joins it with the microphone **off** |
+| Esc     | Release the mouse                                                                     |
+
+## Scripts
+
+| Script            | What it does                                       |
+| ----------------- | -------------------------------------------------- |
+| `npm run dev:all` | Client + game server + local LiveKit               |
+| `npm run dev`     | Client only                                        |
+| `npm run server`  | Game server with auto-reload                       |
+| `npm start`       | Game server for production (`tsx server/index.ts`) |
+| `npm run livekit` | Local LiveKit server in dev mode                   |
+| `npm test`        | Unit tests (Vitest)                                |
+| `npm run lint`    | ESLint                                             |
+| `npm run format`  | Prettier: rewrite the files, then check them       |
+| `npm run build`   | Type-check and build the client into `dist/`       |
+
+## Git hooks
+
+[Husky](https://typicode.github.io/husky/) installs them automatically on `npm install`, with the
+same setup as the play-padel project.
+
+| Hook         | Runs                                                                   |
+| ------------ | ---------------------------------------------------------------------- |
+| `pre-commit` | `npm run lint`, `npx tsc -b`, `npx prettier --check .`, `npm run test` |
+| `pre-push`   | `npm run build`                                                        |
+
+A commit or push is rejected when any step fails (about 10 seconds for a commit). To get past a
+hook in an emergency, use `git commit --no-verify` or `git push --no-verify`.
+
+The type check is `tsc -b` rather than `tsc --noEmit`: `tsconfig.json` only holds project
+references, so `tsc --noEmit` on its own would check nothing here. The `prepare` script also
+tolerates a missing Husky, so `npm ci --omit=dev` (the production install in the `Dockerfile`)
+does not fail.
+
+## How it is organised
+
+```text
+src/            Web client (Vite + React + Three.js)
+  App/            Lobby → connecting → online state machine
+  components/     ChatPanel, LobbyScreen, VoiceIndicator
+  game/           Three.js scene, controls, collisions, networking, voice
+server/         Game server (Colyseus): rooms, chat, voice tokens
+shared/         Code used by both: state schema, office layout and collisions,
+                message validation, movement referee, constants
 ```
+
+- **Client → server** messages (`move`, `chat`) are validated in `shared/` before they are used.
+- **The office layout** (`shared/layout.ts`) is plain data. The client draws it and the server uses
+  the same pieces for collisions, so what you can walk through is decided in one place.
+- **Movement** is predicted by the client (so it feels instant) and refereed by the server: each
+  player has a distance "budget" that tolerates lag bursts but not teleports or speed hacks, and the
+  whole path is checked against the layout. An impossible move makes the server answer with the
+  real position and the client snaps back. The server also chooses where each player appears.
+- **Positions** are synchronised through Colyseus state; chat is broadcast as messages.
+- **Voice and video** go through LiveKit. The game server only issues a short-lived token per
+  player; each participant's identity is their game session id, so media streams map one to one to
+  avatars. Distances are re-evaluated five times a second: audio volume fades with distance, and
+  video is only subscribed to for people within 6 m (and kept until 8 m), which saves bandwidth.
+
+## Configuration
+
+| Variable             | Where                  | Purpose                                                                                                                                                     |
+| -------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_SERVER_URL`    | Client, **build time** | URL of the game server, e.g. `wss://office-server.example.com`. Required for production builds. Defaults to `ws://<current host>:2567` in development only. |
+| `PORT`               | Game server            | Port to listen on. Defaults to `2567`.                                                                                                                      |
+| `LIVEKIT_URL`        | Game server            | LiveKit WebSocket URL, e.g. `wss://your-project.livekit.cloud`.                                                                                             |
+| `LIVEKIT_API_KEY`    | Game server            | LiveKit API key.                                                                                                                                            |
+| `LIVEKIT_API_SECRET` | Game server            | LiveKit API secret.                                                                                                                                         |
+
+The `LIVEKIT_*` variables fall back to the `livekit-server --dev` credentials (`devkey` / `secret`)
+**only outside production**. With `NODE_ENV=production` and no variables set, voice is turned off
+instead of running with well-known secrets.
+
+## Deploying
+
+The app has three independent pieces:
+
+1. **Web client** — static files. Run `VITE_SERVER_URL=wss://… npm run build` and host `dist/` on any
+   static host (Vercel, Netlify, Cloudflare Pages…). `VITE_SERVER_URL` is baked in at build time, so
+   it must be set in the host's build environment.
+2. **Game server** — needs a long-lived process with WebSocket support (Fly.io, Railway, Render, a
+   VPS…). Rooms live in the memory of that process, so it does **not** fit serverless functions. A
+   `Dockerfile` is included; it listens on `PORT` and answers `GET /health`. Serve it over TLS so
+   the client can use `wss://`.
+3. **Voice** — [LiveKit Cloud](https://livekit.io/cloud) or your own LiveKit server. Put its URL and
+   keys in the game server's environment.
+
+## Known limitations
+
+- **The server referees movement, but does not simulate it.** It rejects teleports, speed hacks and
+  walking through furniture, yet a modified client can still run at the maximum allowed speed in
+  any legal direction, lie about where it is looking, and walk through other avatars (players do
+  not collide with each other).
+- **Video is basic**: one fixed quality (480×360, 24 fps), no screen sharing, and the feed is a
+  floating panel above the avatar, not a face.
+- **The office shell is built from boxes and the avatars are procedural.** Individual objects can
+  already be your own models (see [docs/MODELING.md](docs/MODELING.md)); a fully modelled office
+  would replace the drawing in `src/game/office.ts` while `shared/layout.ts` keeps describing where
+  players can and cannot stand, because the server uses that file for collisions, not the model.
+- **Models are static**: no animations, and no interaction with them yet.
+- **One shared office.** Everyone joins the same room until it is full (30 players), then a second
+  room is created and people in different rooms cannot see each other.
+- **No persistence**: restarting the game server empties the office.
+- Three.js (~540 kB) is the largest part of the first load. LiveKit (~520 kB) is only downloaded
+  when someone joins the call.

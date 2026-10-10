@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -e
+
+npm run lint
+# tsconfig.json only has project references, so `tsc --noEmit` alone would check nothing
+npx tsc -b
+npx prettier --check .
+npm run test
