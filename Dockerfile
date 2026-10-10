@@ -15,4 +15,6 @@ EXPOSE 2567
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD node -e "fetch('http://localhost:'+(process.env.PORT||2567)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["npm", "start"]
+# Node 24 runs TypeScript directly, so there is no build step and no tsx or npm wrapper
+# process: one process, about a third less memory, and SIGTERM reaches the server itself.
+CMD ["node", "server/index.ts"]
