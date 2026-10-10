@@ -1,17 +1,24 @@
+import path from "node:path";
 import { runInNewContext } from "node:vm";
 import { transformSync } from "@babel/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { locatorForWindows } from "./locatorWindows.ts";
 
-const PROJECT = "C:\\Users\\Nico\\Desktop\\visual-office";
+// Absolute on every system (C:\work\visual-office on Windows, /work/visual-office elsewhere), so
+// the same tests run on a developer's PC and on a Linux CI runner.
+const PROJECT = path.resolve("/work/visual-office");
 
 // The plugin only acts when NODE_ENV matches its `env` option, and tests run as "test"
 beforeAll(() => vi.stubEnv("NODE_ENV", "development"));
 afterAll(() => vi.unstubAllEnvs());
 
-/** Compiles a component the way the dev server does, as if it lived in a Windows checkout. */
+/**
+ * Compiles a component the way the dev server does. `relativePath` is written with backslashes
+ * on purpose: that is what a Windows checkout produces, and what the plugin used to mangle. On
+ * Linux they are just odd characters in a file name, so the bug is reproduced there as well.
+ */
 function compile(relativePath: string) {
-  const filename = `${PROJECT}\\${relativePath}`;
+  const filename = `${PROJECT}/${relativePath}`;
   const output = transformSync("export const Hello = () => <div>hi</div>", {
     filename,
     cwd: PROJECT,
@@ -60,16 +67,20 @@ describe("locatorForWindows", () => {
     const [key] = Object.keys(
       runInBrowserLike(compile("src\\components\\ChatPanel\\ChatPanel.tsx")),
     );
-    expect(key).toBe(
-      "C:/Users/Nico/Desktop/visual-office/src/components/ChatPanel/ChatPanel.tsx",
-    );
+    expect(key).not.toContain("\\");
+    expect(
+      key.endsWith(
+        "/work/visual-office/src/components/ChatPanel/ChatPanel.tsx",
+      ),
+    ).toBe(true);
   });
 
   it("keeps the project path and the file path separate, as the runtime expects", () => {
     const [entry] = Object.values(
       runInBrowserLike(compile("src\\App\\App.tsx")),
     );
-    expect(entry.projectPath).toBe("C:/Users/Nico/Desktop/visual-office");
+    expect(entry.projectPath).not.toContain("\\");
+    expect(entry.projectPath.endsWith("/work/visual-office")).toBe(true);
     expect(entry.filePath).toBe("/src/App/App.tsx");
   });
 });

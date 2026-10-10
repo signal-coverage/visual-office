@@ -65,17 +65,17 @@ Use headphones when testing with two tabs on one machine, or you will hear an ec
 
 ## Scripts
 
-| Script            | What it does                                       |
-| ----------------- | -------------------------------------------------- |
-| `npm run dev:all` | Client + game server + local LiveKit               |
-| `npm run dev`     | Client only                                        |
-| `npm run server`  | Game server with auto-reload                       |
-| `npm start`       | Game server for production (`tsx server/index.ts`) |
-| `npm run livekit` | Local LiveKit server in dev mode                   |
-| `npm test`        | Unit tests (Vitest)                                |
-| `npm run lint`    | ESLint                                             |
-| `npm run format`  | Prettier: rewrite the files, then check them       |
-| `npm run build`   | Type-check and build the client into `dist/`       |
+| Script            | What it does                                        |
+| ----------------- | --------------------------------------------------- |
+| `npm run dev:all` | Client + game server + local LiveKit                |
+| `npm run dev`     | Client only                                         |
+| `npm run server`  | Game server with auto-reload                        |
+| `npm start`       | Game server for production (`node server/index.ts`) |
+| `npm run livekit` | Local LiveKit server in dev mode                    |
+| `npm test`        | Unit tests (Vitest)                                 |
+| `npm run lint`    | ESLint                                              |
+| `npm run format`  | Prettier: rewrite the files, then check them        |
+| `npm run build`   | Type-check and build the client into `dist/`        |
 
 ## Git hooks
 
@@ -94,6 +94,20 @@ The type check is `tsc -b` rather than `tsc --noEmit`: `tsconfig.json` only hold
 references, so `tsc --noEmit` on its own would check nothing here. The `prepare` script also
 tolerates a missing Husky, so `npm ci --omit=dev` (the production install in the `Dockerfile`)
 does not fail.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to `main` and `develop`,
+on every pull request, and on demand from the Actions tab. Hooks can be skipped with
+`--no-verify`; the CI cannot.
+
+| Job            | What it does                                                        |
+| -------------- | ------------------------------------------------------------------- |
+| `checks`       | `npm ci`, lint, `tsc -b`, `prettier --check .`, tests and the build |
+| `server-image` | Builds the `Dockerfile`, starts it and waits for `GET /health`      |
+
+The second job is what proves the server image really runs. To make both binding, require them in
+the repository settings (Branches → branch protection).
 
 ## How it is organised
 

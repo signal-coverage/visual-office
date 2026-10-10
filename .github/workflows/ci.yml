@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the run that is still going
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Git hooks are for developers: here the same checks run explicitly, below
+  HUSKY: "0"
+
+jobs:
+  checks:
+    name: Lint, types, format, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npx tsc -b
+
+      - name: Check formatting
+        run: npx prettier --check .
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  server-image:
+    name: Game server image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build --tag visual-office-server .
+
+      - name: The container starts and answers /health
+        run: |
+          docker run --detach --name office-server --publish 2567:2567 visual-office-server
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:2567/health; then
+              echo
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "The server did not answer /health in 30 seconds. Its logs:"
+          docker logs office-server
+          exit 1
