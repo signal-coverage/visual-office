@@ -1,7 +1,24 @@
-/** What the server sends a player so they can join the voice room. */
+import { ROOM_NAME } from "./constants.ts";
+
+/** What the server sends a player so they can join a voice room. */
 export interface VoiceCredentials {
   url: string;
   token: string;
+  /**
+   * The private zone this call belongs to, or null for the shared office call.
+   * It is what the client is actually connected to that decides who it hears,
+   * not where the player happens to be standing a moment later.
+   */
+  zone: string | null;
+}
+
+/**
+ * The LiveKit room for a zone. Each private zone gets a room of its own: that
+ * is what keeps its audio and video away from everyone else, enforced by the
+ * server through the token, not by the client's good manners.
+ */
+export function voiceRoomName(zone: string | null): string {
+  return zone ? `${ROOM_NAME}-${zone}` : ROOM_NAME;
 }
 
 /** Within this distance (meters) other players are heard at full volume. */
@@ -24,6 +41,24 @@ export function wantsVideo(
     distance <
     (alreadyReceiving ? VIDEO_UNSUBSCRIBE_DISTANCE : VIDEO_SUBSCRIBE_DISTANCE)
   );
+}
+
+/**
+ * Volume (0..1) for someone in the same call. Inside a private zone everybody
+ * present is heard at full volume (a meeting is not a hallway); in the open
+ * office it fades with distance.
+ */
+export function peerVolume(distance: number, zone: string | null): number {
+  return zone ? 1 : proximityVolume(distance);
+}
+
+/** Whether to be receiving someone's video: everyone in a private zone, otherwise by proximity. */
+export function peerWantsVideo(
+  distance: number,
+  alreadyReceiving: boolean,
+  zone: string | null,
+): boolean {
+  return zone ? true : wantsVideo(distance, alreadyReceiving);
 }
 
 /** Volume (0..1) at which someone `distance` meters away should be heard. */

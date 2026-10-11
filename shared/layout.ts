@@ -60,8 +60,17 @@ const WALL = WALL_THICKNESS;
 const DESK_ROWS_Z = [-3, 3];
 const DESK_COLUMNS_X = [-6, -2, 2];
 const DIVIDER_X = 5.5;
+const DIVIDER_THICKNESS = 0.2;
 const DOOR_HALF_WIDTH = 1.5;
 const MEETING_CENTER = { x: 8, z: 0 };
+
+/** The floor of the meeting room: from the divider to the walls around it. */
+export const MEETING_ROOM: Box = {
+  minX: DIVIDER_X + DIVIDER_THICKNESS / 2,
+  maxX: WIDTH / 2 - WALL / 2,
+  minZ: -DEPTH / 2 + WALL / 2,
+  maxZ: DEPTH / 2 - WALL / 2,
+};
 
 const PLANT_COLLIDER_SIZE = 0.5;
 
@@ -108,12 +117,12 @@ for (const z of DESK_ROWS_Z) {
 const dividerLength = DEPTH / 2 - DOOR_HALF_WIDTH;
 const dividerCenter = DOOR_HALF_WIDTH + dividerLength / 2;
 add(
-  [0.2, HEIGHT, dividerLength],
+  [DIVIDER_THICKNESS, HEIGHT, dividerLength],
   [DIVIDER_X, HEIGHT / 2, -dividerCenter],
   COLORS.divider,
 );
 add(
-  [0.2, HEIGHT, dividerLength],
+  [DIVIDER_THICKNESS, HEIGHT, dividerLength],
   [DIVIDER_X, HEIGHT / 2, dividerCenter],
   COLORS.divider,
 );

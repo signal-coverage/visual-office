@@ -1,12 +1,66 @@
 import { describe, expect, it } from "vitest";
+import { ROOM_NAME } from "./constants.ts";
 import {
+  peerVolume,
+  peerWantsVideo,
   proximityVolume,
   VIDEO_SUBSCRIBE_DISTANCE,
   VIDEO_UNSUBSCRIBE_DISTANCE,
   VOICE_FULL_VOLUME_DISTANCE,
   VOICE_MAX_DISTANCE,
+  voiceRoomName,
   wantsVideo,
 } from "./voice.ts";
+
+describe("voiceRoomName", () => {
+  it("uses the shared office room outside every zone", () => {
+    expect(voiceRoomName(null)).toBe(ROOM_NAME);
+  });
+
+  it("gives each zone a call of its own", () => {
+    expect(voiceRoomName("meeting")).not.toBe(ROOM_NAME);
+    expect(voiceRoomName("meeting")).not.toBe(voiceRoomName("lounge"));
+  });
+
+  it("is stable, so everyone in a zone lands in the same call", () => {
+    expect(voiceRoomName("meeting")).toBe(voiceRoomName("meeting"));
+  });
+});
+
+describe("peerVolume", () => {
+  it("fades with distance in the open office", () => {
+    expect(peerVolume(1, null)).toBe(1);
+    expect(peerVolume(6, null)).toBeCloseTo(proximityVolume(6));
+    expect(peerVolume(VOICE_MAX_DISTANCE + 1, null)).toBe(0);
+  });
+
+  it("is full volume for everybody in a private zone, however far", () => {
+    // The meeting room is 13.7 m long: proximity alone would silence its far end
+    expect(peerVolume(VOICE_MAX_DISTANCE + 3, "meeting")).toBe(1);
+    expect(peerVolume(0, "meeting")).toBe(1);
+  });
+
+  it("still treats an unknown distance as silence in the open office", () => {
+    expect(peerVolume(NaN, null)).toBe(0);
+  });
+});
+
+describe("peerWantsVideo", () => {
+  it("follows proximity in the open office", () => {
+    expect(peerWantsVideo(VIDEO_SUBSCRIBE_DISTANCE - 0.1, false, null)).toBe(
+      true,
+    );
+    expect(peerWantsVideo(VIDEO_SUBSCRIBE_DISTANCE + 0.1, false, null)).toBe(
+      false,
+    );
+  });
+
+  it("wants everybody's video in a private zone, however far", () => {
+    expect(
+      peerWantsVideo(VIDEO_UNSUBSCRIBE_DISTANCE + 5, false, "meeting"),
+    ).toBe(true);
+  });
+});
 
 describe("wantsVideo", () => {
   it("starts receiving video once someone comes close enough", () => {

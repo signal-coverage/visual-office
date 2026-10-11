@@ -6,6 +6,7 @@ import { DebugOverlay } from "../components/DebugOverlay";
 import { LobbyScreen } from "../components/LobbyScreen";
 import { SelfView } from "../components/SelfView";
 import { VoiceIndicator } from "../components/VoiceIndicator";
+import { ZoneIndicator } from "../components/ZoneIndicator";
 import { Game } from "../game/Game";
 import { detectGpuName, isSoftwareRenderer } from "../game/gpu";
 import type { VoiceState } from "../game/VoiceChat";
@@ -32,6 +33,7 @@ export function App() {
   const [message, setMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [voiceState, setVoiceState] = useState<VoiceState>("unavailable");
+  const [zone, setZone] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [selfView, setSelfView] = useState<HTMLVideoElement | null>(null);
@@ -75,6 +77,7 @@ export function App() {
     setPhase("connecting");
     setMessage(null);
     setReconnecting(false);
+    setZone(null);
 
     // `gameRef.current !== game` means the component unmounted (or React StrictMode
     // remounted it) while we were connecting: that attempt no longer matters.
@@ -83,6 +86,7 @@ export function App() {
         onChat: (chat) =>
           setMessages((prev) => [...prev, chat].slice(-MAX_STORED_MESSAGES)),
         onVoiceState: setVoiceState,
+        onZone: setZone,
         onCamera: (on, element) => {
           setCameraOn(on);
           setSelfView(element);
@@ -90,6 +94,7 @@ export function App() {
         onReconnecting: setReconnecting,
         onDisconnected: () => {
           setReconnecting(false);
+          setZone(null);
           setMessage(CONNECTION_LOST_MESSAGE);
           setPhase("offline");
         },
@@ -135,6 +140,7 @@ export function App() {
             cameraOn={cameraOn}
             onToggle={() => gameRef.current?.toggleVoice()}
           />
+          <ZoneIndicator label={zone} />
           <SelfView element={selfView} />
           <ChatPanel
             messages={messages}

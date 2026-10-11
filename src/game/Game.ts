@@ -14,6 +14,7 @@ import { CallController } from "./CallController";
 import { FpsMeter } from "./FpsMeter";
 import { isSoftwareRenderer, readGpuName } from "./gpu";
 import { connect, type Connection } from "./network";
+import { zoneLabel } from "../../shared/zones.ts";
 import { buildOffice } from "./office";
 import { loadProps } from "./props";
 import { RemotePlayers } from "./RemotePlayers";
@@ -22,6 +23,8 @@ import type { VoiceState } from "./VoiceChat";
 export interface GameEvents {
   onChat: (message: ChatMessage) => void;
   onVoiceState: (state: VoiceState) => void;
+  /** The name of the private zone we walked into, or null when we are back in the open office. */
+  onZone: (label: string | null) => void;
   /** Our camera turned on (with a preview to show) or off (null). */
   onCamera: (on: boolean, selfView: HTMLVideoElement | null) => void;
   /** Connection lost but still retrying (true), or recovered (false). */
@@ -49,6 +52,7 @@ export interface Diagnostics {
 const NO_EVENTS: GameEvents = {
   onChat: () => {},
   onVoiceState: () => {},
+  onZone: () => {},
   onCamera: () => {},
   onReconnecting: () => {},
   onDisconnected: () => {},
@@ -145,6 +149,9 @@ export class Game {
       onPlayerRemoved: (id) => this.remotePlayers.remove(id),
       onChat: events.onChat,
       onVoice: (credentials) => this.call.setCredentials(credentials),
+      onZone: (zone) => {
+        if (!this.disposed) events.onZone(zone ? zoneLabel(zone) : null);
+      },
       onDropped: () => {
         this.reconnecting = true;
         if (!this.disposed) events.onReconnecting(true);

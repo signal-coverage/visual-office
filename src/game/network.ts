@@ -4,6 +4,7 @@ import { ROOM_NAME } from "../../shared/constants.ts";
 import type { Correction, Move } from "../../shared/movement.ts";
 import { OfficeState, type Player } from "../../shared/state.ts";
 import type { VoiceCredentials } from "../../shared/voice.ts";
+import type { ZoneMessage } from "../../shared/zones.ts";
 import { resolveServerUrl } from "./serverUrl";
 
 export interface NetworkHandlers {
@@ -15,6 +16,8 @@ export interface NetworkHandlers {
   onPlayerRemoved: (sessionId: string) => void;
   onChat: (message: ChatMessage) => void;
   onVoice: (credentials: VoiceCredentials) => void;
+  /** We walked into a private zone (its id) or back out into the open office (null). */
+  onZone: (zone: ZoneMessage) => void;
   /** The connection dropped; the SDK keeps retrying in the background. */
   onDropped: () => void;
   onReconnected: () => void;
@@ -61,6 +64,7 @@ export async function connect(
   room.onMessage("voice", (credentials: VoiceCredentials) =>
     handlers.onVoice(credentials),
   );
+  room.onMessage("zone", (zone: ZoneMessage) => handlers.onZone(zone));
   room.onDrop(() => handlers.onDropped());
   room.onReconnect(() => handlers.onReconnected());
   room.onLeave(() => handlers.onDisconnected());

@@ -1,6 +1,6 @@
 import {
-  proximityVolume,
-  wantsVideo,
+  peerVolume,
+  peerWantsVideo,
   type VoiceCredentials,
 } from "../../shared/voice.ts";
 import { VoiceChat, type VoiceState } from "./VoiceChat";
@@ -34,15 +34,30 @@ export class CallController {
   private state: VoiceState = "unavailable";
   private cameraOn = false;
   private sinceUpdate = 0;
+  /** What we want from the call, to carry over when it moves to another room. */
+  private wanted = { mic: false, camera: false };
+  /**
+   * The private zone of the call we are in (null: the open office). The volume
+   * rule follows this, not the latest credentials: it is the room we are really
+   * connected to that decides who we can hear.
+   */
+  private callZone: string | null = null;
 
   constructor(events: CallEvents) {
     this.events = events;
   }
 
-  /** The game server gave us credentials: the call is now available. */
+  /**
+   * The game server gave us credentials: the call is now available. They change
+   * when we cross into or out of a private zone, and a call already in progress
+   * moves to the new room, keeping the microphone and camera as they were.
+   */
   setCredentials(credentials: VoiceCredentials) {
     this.credentials = credentials;
     if (this.state === "unavailable") this.setState("idle");
+    if (this.chat && credentials.zone !== this.callZone) {
+      void this.join(this.wanted);
+    }
   }
 
   /** Microphone key: joins the call the first time, then mutes / unmutes. */
@@ -54,10 +69,12 @@ export class CallController {
         break;
       case "live":
         this.chat?.setMuted(true);
+        this.wanted.mic = false;
         this.setState("muted");
         break;
       case "muted":
         this.chat?.setMuted(false);
+        this.wanted.mic = true;
         this.setState("live");
         break;
     }
@@ -96,12 +113,13 @@ export class CallController {
     if (!chat || this.sinceUpdate < UPDATE_INTERVAL) return;
     this.sinceUpdate = 0;
 
+    const zone = this.callZone;
     forEachRemote((identity, x, z) => {
       const distance = Math.hypot(x - me.x, z - me.z);
-      chat.setVolume(identity, proximityVolume(distance));
+      chat.setVolume(identity, peerVolume(distance, zone));
       chat.setVideoWanted(
         identity,
-        wantsVideo(distance, chat.isReceivingVideo(identity)),
+        peerWantsVideo(distance, chat.isReceivingVideo(identity), zone),
       );
     });
   }
@@ -124,6 +142,8 @@ export class CallController {
       },
     });
     this.chat = chat;
+    this.callZone = credentials.zone;
+    this.wanted = { mic, camera };
     this.setState("connecting");
 
     try {
@@ -141,11 +161,13 @@ export class CallController {
   }
 
   private async setCamera(on: boolean) {
+    this.wanted.camera = on;
     try {
       await this.chat?.setCameraEnabled(on);
     } catch (error) {
       // Denied permission, no camera, or in use by another app: stay in the call without it
       console.warn("Camera unavailable", error);
+      this.wanted.camera = false;
     }
   }
 
