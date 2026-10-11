@@ -1,4 +1,10 @@
 import * as THREE from "three";
+import {
+  MIRROR_VIDEO_PANELS,
+  mirrorHorizontally,
+  NAME_TAG,
+  VIDEO_PANEL,
+} from "./avatarLayout";
 import { STRIDE_RADIANS_PER_METER, walkPose } from "./walkPose";
 
 export interface Avatar {
@@ -19,9 +25,6 @@ const LEG = { width: 0.17, height: 0.8, depth: 0.2, hipX: 0.11 };
 const TORSO = { width: 0.46, height: 0.62, depth: 0.26 };
 const ARM = { width: 0.12, height: 0.58, depth: 0.14, shoulderX: 0.3 };
 const HEAD_RADIUS = 0.15;
-const NAME_TAG_HEIGHT = 2.1;
-const VIDEO_CENTER_HEIGHT = 2.78;
-const VIDEO_PANEL_HEIGHT = 0.75;
 const DEFAULT_VIDEO_ASPECT = 4 / 3;
 
 function hashOf(text: string): number {
@@ -51,9 +54,9 @@ function makeLabel(text: string) {
       depthTest: false,
     }),
   );
-  sprite.scale.set(1.6, 0.4, 1);
+  sprite.scale.set(1.6, NAME_TAG.height, 1);
   sprite.renderOrder = 1;
-  sprite.position.y = NAME_TAG_HEIGHT;
+  sprite.position.y = NAME_TAG.center;
   return sprite;
 }
 
@@ -153,17 +156,18 @@ export function createAvatar(name: string): Avatar {
 
       const texture = new THREE.VideoTexture(element);
       texture.colorSpace = THREE.SRGBColorSpace;
+      if (MIRROR_VIDEO_PANELS) mirrorHorizontally(texture);
       const sprite = new THREE.Sprite(
         new THREE.SpriteMaterial({ map: texture }),
       );
-      sprite.position.y = VIDEO_CENTER_HEIGHT;
+      sprite.position.y = VIDEO_PANEL.center;
       // Match the camera's real proportions once they are known
       const fit = () => {
         const aspect =
           element.videoWidth && element.videoHeight
             ? element.videoWidth / element.videoHeight
             : DEFAULT_VIDEO_ASPECT;
-        sprite.scale.set(VIDEO_PANEL_HEIGHT * aspect, VIDEO_PANEL_HEIGHT, 1);
+        sprite.scale.set(VIDEO_PANEL.height * aspect, VIDEO_PANEL.height, 1);
       };
       fit();
       element.addEventListener("loadedmetadata", fit);

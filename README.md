@@ -12,6 +12,7 @@ Think WorkAdventure, but in 3D.
 - Text chat (Enter)
 - Proximity voice chat (M): full volume within 2 m, silent beyond 10 m
 - Proximity video (C): a camera feed floats above the avatar of whoever is within 6 m
+- Private meeting room: inside it everybody hears and sees everybody, and nobody outside does
 - Your own 3D models: drop a `.glb` in `public/models/` and add one line, see [docs/MODELING.md](docs/MODELING.md)
 - Server-side referee: speed limits and collisions are checked on the server
 - Diagnostics panel (F3): FPS, worst frame, GPU and server corrections, to find out why it feels slow
@@ -114,7 +115,7 @@ the repository settings (Branches → branch protection).
 ```text
 src/            Web client (Vite + React + Three.js)
   App/            Lobby → connecting → online state machine
-  components/     ChatPanel, LobbyScreen, VoiceIndicator
+  components/     ChatPanel, LobbyScreen, VoiceIndicator, ZoneIndicator
   game/           Three.js scene, controls, collisions, networking, voice
 server/         Game server (Colyseus): rooms, chat, voice tokens
 shared/         Code used by both: state schema, office layout and collisions,
@@ -134,6 +135,37 @@ shared/         Code used by both: state schema, office layout and collisions,
   avatars. Distances are re-evaluated five times a second: audio volume fades with distance, and
   video is only subscribed to for people within 6 m (and kept until 8 m), which saves bandwidth.
 
+### Private zones
+
+The meeting room (east of the divider) is a private zone, defined in [`shared/zones.ts`](shared/zones.ts)
+from the same layout that draws the room. While you are inside:
+
+- you hear and see **everybody in the room at full volume, however far** (the room is longer than
+  the 10 m proximity limit), and a green "Private zone" badge is shown;
+- people outside cannot hear or see you, and you cannot hear or see them.
+
+Privacy is enforced by the **server**, not by the client being polite: each zone has its own LiveKit
+room (`office` for the open plan, `office-meeting` for the meeting room). The server tracks where each
+player stands from the moves it has already refereed and sends credentials for the right room; the
+token only lets that player into that one room. A modified client therefore cannot just ask for the
+meeting room, it has to be inside it.
+
+Things worth knowing:
+
+- Crossing the door moves your call to another room, so expect a gap of about a second. Your
+  microphone and camera state is kept. Changes are spaced at least 1 s apart, so wobbling in the
+  doorway does not reconnect you over and over; the zone itself changes with a margin of 35 cm on each
+  side of the wall for the same reason.
+- Tokens for a private room expire after 2 minutes. A token is only needed to join, so this stops a
+  stale one from letting somebody back in after they left.
+- After walking out, a player's own client moves them to the other room (about a second). If a
+  modified client refuses, the server removes it: every 5 seconds it lists who is in each voice room
+  and removes (LiveKit's `removeParticipant`) anybody it did not send there. So the worst case is a
+  few seconds of staying in the call, and the same sweep catches someone who rejoins with an old
+  token. Only players of that game room are touched.
+- **Text chat is not private**: it is still broadcast to everyone.
+- Adding a zone is one entry in `ZONES`; the client and the server pick it up from there.
+
 ## Configuration
 
 | Variable             | Where                  | Purpose                                                                                                                                                     |
@@ -148,6 +180,19 @@ The `LIVEKIT_*` variables fall back to the `livekit-server --dev` credentials (`
 **only outside production**. With `NODE_ENV=production` and no variables set, voice is turned off
 instead of running with well-known secrets.
 
+Voice is the one setting that fails quietly when it is wrong, so the server states how it came out
+in its startup log (the credentials are never printed):
+
+```text
+Voice chat is on, using wss://your-project.livekit.cloud
+Voice chat is off: missing LIVEKIT_API_SECRET
+Voice chat is off: set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET to turn it on
+```
+
+`LIVEKIT_URL` may be written as `https://…`, `wss://…` or without a scheme; it is converted to the
+`wss://` form the browser needs. Spaces or line breaks pasted around any value are ignored, and an
+empty variable counts as not set.
+
 ## Deploying
 
 The app has three independent pieces:
@@ -159,8 +204,11 @@ The app has three independent pieces:
    VPS…). Rooms live in the memory of that process, so it does **not** fit serverless functions. A
    `Dockerfile` is included; it listens on `PORT` and answers `GET /health`. Serve it over TLS so
    the client can use `wss://`.
-3. **Voice** — [LiveKit Cloud](https://livekit.io/cloud) or your own LiveKit server. Put its URL and
-   keys in the game server's environment.
+3. **Voice and video** — [LiveKit Cloud](https://livekit.com/pricing) or your own LiveKit server.
+   Put its URL and keys in the game server's environment (never in the client, and never in git).
+   LiveKit Cloud's free Build plan listed 5,000 WebRTC minutes, 50 GB of downstream data and 100
+   concurrent connections when this was written; video is what uses the bandwidth, audio is cheap.
+   Check your dashboard for what happens when a quota runs out.
 
 ## Known limitations
 

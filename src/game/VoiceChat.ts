@@ -39,6 +39,7 @@ export class VoiceChat {
   private closed = false;
   private readonly events: MediaEvents;
   private readonly audioElements = new Set<HTMLMediaElement>();
+  private readonly audioOfTrack = new Map<object, HTMLMediaElement>();
   private readonly videoPublications = new Map<
     string,
     RemoteTrackPublication
@@ -88,6 +89,7 @@ export class VoiceChat {
         participant.setVolume(0);
         const element = track.attach();
         this.audioElements.add(element);
+        this.audioOfTrack.set(track, element);
         document.body.appendChild(element);
       } else if (track.kind === Track.Kind.Video) {
         // attach() is typed as a generic media element, but a video track yields a <video>
@@ -99,10 +101,14 @@ export class VoiceChat {
     });
 
     room.on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
-      for (const element of track.detach()) {
+      // When someone leaves, LiveKit may already have detached the element by now,
+      // so detach() returns nothing: remove the one we kept, or it stays in the page.
+      const kept = this.audioOfTrack.get(track);
+      for (const element of [...track.detach(), ...(kept ? [kept] : [])]) {
         element.remove();
         this.audioElements.delete(element);
       }
+      this.audioOfTrack.delete(track);
       if (track.kind === Track.Kind.Video) {
         this.remoteVideos.delete(participant.identity);
         this.events.onRemoteVideo(participant.identity, null);
@@ -180,6 +186,7 @@ export class VoiceChat {
     this.clearLocalVideo();
     for (const element of this.audioElements) element.remove();
     this.audioElements.clear();
+    this.audioOfTrack.clear();
     // Disconnecting does not reliably report each feed as gone: do it ourselves
     for (const identity of this.remoteVideos.keys())
       this.events.onRemoteVideo(identity, null);

@@ -26,3 +26,6 @@ dist-ssr
 # Local dev binaries (LiveKit server) and browser tool output
 tools/
 .playwright-mcp/
+
+.vercel
+.env*
