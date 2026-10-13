@@ -6,6 +6,8 @@ export interface ChatMessage {
   name: string;
   text: string;
   at: number;
+  /** The sender's chat colour (an index, see chatColor.ts), as the server knows it. */
+  color: number;
 }
 
 // eslint-disable-next-line no-control-regex

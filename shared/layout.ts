@@ -5,60 +5,45 @@ import {
   OFFICE_WIDTH,
   WALL_THICKNESS,
 } from "./constants.ts";
-import { PROP_COLLIDERS } from "./props.ts";
+import {
+  furnitureColliders,
+  piecesOf,
+  sanitizeFurniture,
+  type Furniture,
+} from "./furniture.ts";
+import { OFFICE_FURNITURE, OFFICE_MODELS } from "./officeData.ts";
+import { COLORS, type BoxPiece } from "./pieces.ts";
+import {
+  footprintCollider,
+  sanitizeModels,
+  type PropPlacement,
+} from "./props.ts";
 
 /**
  * The office as plain data. The client draws it and the server uses the same
  * pieces for collisions, so what you can walk through is decided in one place.
+ *
+ * It has two parts: the shell (outer walls, the meeting room's divider and
+ * door, the frames of the whiteboard and the screen), which is fixed here
+ * because zones, boards and screens depend on it, and everything that stands
+ * inside (officeData.ts), which the office editor moves around.
  * (When the office becomes a modelled GLB, only the drawing changes: this file
  * keeps describing where players can and cannot stand.)
  */
 
-export interface BoxPiece {
-  /** [width, height, depth] */
-  size: readonly [number, number, number];
-  /** Center position [x, y, z] */
-  at: readonly [number, number, number];
-  color: number;
-  solid: boolean;
-  emissive?: number;
-  /** Cast shadows. Flat decals and light panels do not need to. */
-  shadows: boolean;
-}
+export type { BoxPiece };
+export { COLORS };
 
 export interface PlantPiece {
   x: number;
   z: number;
 }
 
-export const COLORS = {
-  wall: 0xe8e4da,
-  floor: 0x9a9aa0,
-  ceiling: 0xf4f4f4,
-  /** Self-lighting for the ceiling: nothing shines on it from below. */
-  ceilingGlow: 0x707070,
-  desk: 0x9c6b3f,
-  monitor: 0x222222,
-  chair: 0x2f3542,
-  divider: 0xcfd8dc,
-  meetingTable: 0x6d4c41,
-  rug: 0x3b5b8a,
-  whiteboard: 0xfafafa,
-  frame: 0x8a8d93,
-  pot: 0x8b5a3c,
-  leaves: 0x3f8f4f,
-  light: 0xffffff,
-} as const;
-
-const POSTER_COLORS = [0x5b8cff, 0xffb347, 0x6bcf8f];
-
 const WIDTH = OFFICE_WIDTH;
 const DEPTH = OFFICE_DEPTH;
 const HEIGHT = OFFICE_HEIGHT;
 const WALL = WALL_THICKNESS;
 
-const DESK_ROWS_Z = [-3, 3];
-const DESK_COLUMNS_X = [-6, -2, 2];
 const DIVIDER_X = 5.5;
 const DIVIDER_THICKNESS = 0.2;
 const DOOR_HALF_WIDTH = 1.5;
@@ -72,12 +57,20 @@ export const MEETING_ROOM: Box = {
   maxZ: DEPTH / 2 - WALL / 2,
 };
 
-const PLANT_COLLIDER_SIZE = 0.5;
+/** The floor inside the outer walls: the furniture has to stay within it. */
+export const OFFICE_FLOOR: Box = {
+  minX: -WIDTH / 2 + WALL / 2,
+  maxX: WIDTH / 2 - WALL / 2,
+  minZ: -DEPTH / 2 + WALL / 2,
+  maxZ: DEPTH / 2 - WALL / 2,
+};
 
 export const BOX_PIECES: BoxPiece[] = [];
 export const PLANTS: PlantPiece[] = [];
+const shellPieces: BoxPiece[] = [];
 
 const add = (
+  into: BoxPiece[],
   size: BoxPiece["size"],
   at: BoxPiece["at"],
   color: number,
@@ -87,112 +80,153 @@ const add = (
     shadows = true,
   }: { solid?: boolean; emissive?: number; shadows?: boolean } = {},
 ) => {
-  BOX_PIECES.push({ size, at, color, solid, emissive, shadows });
-};
-
-/** A chair whose backrest is on the `backSide` (+1 / -1) side of the seat along z. */
-const chair = (x: number, z: number, backSide: 1 | -1) => {
-  add([0.5, 0.45, 0.5], [x, 0.225, z], COLORS.chair);
-  add([0.5, 0.5, 0.08], [x, 0.7, z + backSide * 0.21], COLORS.chair, {
-    solid: false,
-  });
+  into.push({ size, at, color, solid, emissive, shadows });
 };
 
 // Outer walls
-add([WIDTH, HEIGHT, WALL], [0, HEIGHT / 2, -DEPTH / 2], COLORS.wall);
-add([WIDTH, HEIGHT, WALL], [0, HEIGHT / 2, DEPTH / 2], COLORS.wall);
-add([WALL, HEIGHT, DEPTH], [-WIDTH / 2, HEIGHT / 2, 0], COLORS.wall);
-add([WALL, HEIGHT, DEPTH], [WIDTH / 2, HEIGHT / 2, 0], COLORS.wall);
+add(
+  shellPieces,
+  [WIDTH, HEIGHT, WALL],
+  [0, HEIGHT / 2, -DEPTH / 2],
+  COLORS.wall,
+);
+add(
+  shellPieces,
+  [WIDTH, HEIGHT, WALL],
+  [0, HEIGHT / 2, DEPTH / 2],
+  COLORS.wall,
+);
+add(
+  shellPieces,
+  [WALL, HEIGHT, DEPTH],
+  [-WIDTH / 2, HEIGHT / 2, 0],
+  COLORS.wall,
+);
+add(
+  shellPieces,
+  [WALL, HEIGHT, DEPTH],
+  [WIDTH / 2, HEIGHT / 2, 0],
+  COLORS.wall,
+);
 
-// Open-plan desks: monitors face +z, chairs sit on that side
-for (const z of DESK_ROWS_Z) {
-  for (const x of DESK_COLUMNS_X) {
-    add([1.8, 0.75, 0.9], [x, 0.375, z], COLORS.desk);
-    add([0.6, 0.4, 0.05], [x, 1.0, z - 0.2], COLORS.monitor, { solid: false });
-    chair(x, z + 0.95, 1);
-  }
-}
-
-// Meeting room: a divider with a door gap, a table with chairs, a rug and a whiteboard
+// Meeting room: a divider with a door gap
 const dividerLength = DEPTH / 2 - DOOR_HALF_WIDTH;
 const dividerCenter = DOOR_HALF_WIDTH + dividerLength / 2;
 add(
+  shellPieces,
   [DIVIDER_THICKNESS, HEIGHT, dividerLength],
   [DIVIDER_X, HEIGHT / 2, -dividerCenter],
   COLORS.divider,
 );
 add(
+  shellPieces,
   [DIVIDER_THICKNESS, HEIGHT, dividerLength],
   [DIVIDER_X, HEIGHT / 2, dividerCenter],
   COLORS.divider,
 );
 
 const { x: mx, z: mz } = MEETING_CENTER;
-add([4.2, 0.02, 4.8], [mx, 0.011, mz], COLORS.rug, {
-  solid: false,
-  shadows: false,
-});
-add([1.2, 0.75, 3.2], [mx, 0.375, mz], COLORS.meetingTable);
-for (const dz of [-1.2, 0, 1.2]) {
-  chair(mx - 1.1, mz + dz, -1);
-  chair(mx + 1.1, mz + dz, 1);
-}
+
+// The whiteboard on the east wall: a frame and a white panel
 const boardX = WIDTH / 2 - WALL / 2 - 0.03;
-add([0.04, 1.5, 2.8], [boardX, 1.6, mz], COLORS.frame, {
+add(shellPieces, [0.04, 1.5, 2.8], [boardX, 1.6, mz], COLORS.frame, {
   solid: false,
   shadows: false,
 });
-add([0.05, 1.3, 2.6], [boardX - 0.01, 1.6, mz], COLORS.whiteboard, {
+add(
+  shellPieces,
+  [0.05, 1.3, 2.6],
+  [boardX - 0.01, 1.6, mz],
+  COLORS.whiteboard,
+  { solid: false, shadows: false },
+);
+
+// A screen on the north wall of the meeting room, for whatever somebody shares
+const northWallZ = -DEPTH / 2 + WALL / 2;
+add(shellPieces, [3.5, 2.0, 0.06], [mx, 1.8, northWallZ + 0.03], COLORS.frame, {
   solid: false,
   shadows: false,
 });
 
-// Decoration: corner plants, posters on the north wall, ceiling light panels
-const plantX = WIDTH / 2 - 0.9;
-const plantZ = DEPTH / 2 - 0.9;
-for (const [x, z] of [
-  [-plantX, -plantZ],
-  [-plantX, plantZ],
-  [plantX, -plantZ],
-  [plantX, plantZ],
-]) {
-  PLANTS.push({ x, z });
+/** The picture area of that screen: a 16:9 plane just in front of its frame. */
+export const MEETING_SCREEN = {
+  x: mx,
+  y: 1.8,
+  z: northWallZ + 0.06 + 0.004,
+  width: 3.3,
+  height: (3.3 * 9) / 16,
+};
+
+/**
+ * The part of the whiteboard that can be drawn on: a plane just in front of
+ * its white panel, which is 2.6 m wide and 1.3 m high, centred at `y`.
+ */
+export const WHITEBOARD = {
+  x: boardX - 0.01 - 0.025 - 0.004,
+  y: 1.6,
+  z: mz,
+  width: 2.6,
+  height: 1.3,
+};
+
+/** What stands inside, from officeData.ts; anything malformed there is left out. */
+export const FURNITURE = sanitizeFurniture(OFFICE_FURNITURE);
+
+/** What stands in a floor: the furniture and the models of your own. */
+export interface Layout {
+  furniture: Furniture[];
+  models: PropPlacement[];
 }
 
-POSTER_COLORS.forEach((color, i) => {
-  const x = DESK_COLUMNS_X[i];
-  add([0.9, 1.2, 0.03], [x, 1.7, -DEPTH / 2 + WALL / 2 + 0.02], color, {
-    solid: false,
-    shadows: false,
-  });
+/** A layout turned into what is drawn and what blocks people. */
+export interface FloorScene {
+  /** The furniture that is left once the malformed entries are out. */
+  furniture: Furniture[];
+  models: PropPlacement[];
+  pieces: BoxPiece[];
+  plants: PlantPiece[];
+  colliders: Box[];
+}
+
+/**
+ * Everything the client draws and the server collides with, for any layout:
+ * the fixed shell plus what the layout holds. Anything malformed is left out,
+ * so a bad stored layout cannot break a floor.
+ */
+export function sceneFor(layout: Layout): FloorScene {
+  const furniture = sanitizeFurniture(layout.furniture);
+  const models = sanitizeModels(layout.models);
+  return {
+    furniture,
+    models,
+    pieces: [...shellPieces, ...furniture.flatMap(piecesOf)],
+    plants: furniture
+      .filter((item) => item.kind === "plant")
+      .map(({ x, z }) => ({ x, z })),
+    colliders: [
+      ...SHELL_COLLIDERS,
+      ...furniture.flatMap(furnitureColliders),
+      ...models.flatMap((prop) => footprintCollider(prop) ?? []),
+    ],
+  };
+}
+
+/** What the walls and the divider block, with nothing inside the office. */
+export const SHELL_COLLIDERS: Box[] = shellPieces
+  .filter((piece) => piece.solid)
+  .map((piece) => ({
+    minX: piece.at[0] - piece.size[0] / 2,
+    maxX: piece.at[0] + piece.size[0] / 2,
+    minZ: piece.at[2] - piece.size[2] / 2,
+    maxZ: piece.at[2] + piece.size[2] / 2,
+  }));
+
+const DEFAULT_SCENE = sceneFor({
+  furniture: OFFICE_FURNITURE,
+  models: OFFICE_MODELS,
 });
+BOX_PIECES.push(...DEFAULT_SCENE.pieces);
+PLANTS.push(...DEFAULT_SCENE.plants);
 
-const lights: Array<[number, number]> = [
-  ...DESK_COLUMNS_X.flatMap((x) =>
-    DESK_ROWS_Z.map((z): [number, number] => [x, z]),
-  ),
-  [mx, mz - 1.5],
-  [mx, mz + 1.5],
-];
-for (const [x, z] of lights) {
-  add([1.4, 0.05, 0.5], [x, HEIGHT - 0.03, z], COLORS.light, {
-    solid: false,
-    shadows: false,
-    emissive: COLORS.light,
-  });
-}
-
-function colliderOf(x: number, z: number, w: number, d: number): Box {
-  return { minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 };
-}
-
-/** Everything a player bumps into, as XZ boxes: the built-in furniture plus your own models. */
-export const OFFICE_COLLIDERS: Box[] = [
-  ...BOX_PIECES.filter((p) => p.solid).map((p) =>
-    colliderOf(p.at[0], p.at[2], p.size[0], p.size[2]),
-  ),
-  ...PLANTS.map((p) =>
-    colliderOf(p.x, p.z, PLANT_COLLIDER_SIZE, PLANT_COLLIDER_SIZE),
-  ),
-  ...PROP_COLLIDERS,
-];
+/** Everything a player bumps into, as XZ boxes: the shell, the furniture and your own models. */
+export const OFFICE_COLLIDERS: Box[] = DEFAULT_SCENE.colliders;

@@ -1,4 +1,38 @@
-import { NAME_STORAGE_KEY } from "./consts";
+import {
+  appearanceFromJson,
+  type Appearance,
+} from "../../shared/appearance.ts";
+import { messageForAuthCode } from "../../shared/auth.ts";
+import {
+  FLOOR_CLOSED_CODE,
+  FLOOR_CLOSED_MESSAGE,
+} from "../../shared/floors.ts";
+import {
+  APPEARANCE_STORAGE_KEY,
+  CONNECTION_LOST_MESSAGE,
+  NAME_STORAGE_KEY,
+  UNREACHABLE_MESSAGE,
+} from "./consts";
+
+/** Why somebody is back at the menu after being connected. */
+export function messageForDisconnect(code: number): string {
+  return code === FLOOR_CLOSED_CODE
+    ? FLOOR_CLOSED_MESSAGE
+    : CONNECTION_LOST_MESSAGE;
+}
+
+/** Why joining failed: the floor is closed for editing, or the server cannot be reached. */
+export function messageForJoinError(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null
+      ? (error as { code?: unknown }).code
+      : undefined;
+  if (code === FLOOR_CLOSED_CODE) return FLOOR_CLOSED_MESSAGE;
+  return (
+    (typeof code === "number" ? messageForAuthCode(code) : null) ??
+    UNREACHABLE_MESSAGE
+  );
+}
 
 /** A name passed in the link (`?name=Ana`) skips the lobby. Handy for invites and testing. */
 export function nameFromUrl(): string | null {
@@ -18,6 +52,29 @@ export function loadSavedName(): string {
 export function saveName(name: string) {
   try {
     window.localStorage.setItem(NAME_STORAGE_KEY, name);
+  } catch {
+    // ignore
+  }
+}
+
+/** The look chosen last time, or `fallback` when there is none (or it is damaged). */
+export function loadAppearance(fallback: Appearance): Appearance {
+  try {
+    return appearanceFromJson(
+      window.localStorage.getItem(APPEARANCE_STORAGE_KEY),
+      fallback,
+    );
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveAppearance(appearance: Appearance) {
+  try {
+    window.localStorage.setItem(
+      APPEARANCE_STORAGE_KEY,
+      JSON.stringify(appearance),
+    );
   } catch {
     // ignore
   }

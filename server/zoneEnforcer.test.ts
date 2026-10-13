@@ -65,6 +65,22 @@ describe("enforceZones", () => {
     expect(evicted).toEqual(["beto"]);
   });
 
+  it("looks in the company's own rooms when there is a prefix", async () => {
+    const { admin, removed } = fakeAdmin({
+      [voiceRoomName("meeting", "acme-")]: ["ana", "beto"],
+      // somebody else's company, on the same LiveKit project: not ours to touch
+      [voiceRoomName("meeting", "beta-")]: ["intruder"],
+    });
+    const issued: Record<string, string | null> = {
+      ana: "meeting",
+      beto: null,
+    };
+
+    await enforceZones(admin, ["meeting"], (id) => issued[id], "acme-");
+
+    expect(removed).toEqual([[voiceRoomName("meeting", "acme-"), "beto"]]);
+  });
+
   it("does nothing when everybody is where they should be", async () => {
     const { admin, removed } = fakeAdmin({
       [voiceRoomName("meeting")]: ["ana"],

@@ -1,9 +1,21 @@
 import * as THREE from "three";
 import {
+  appearanceColors,
+  HAIR_STYLES,
+  type Appearance,
+} from "../../shared/appearance.ts";
+import {
+  faceCrop,
+  HAIR,
+  hairBackZ,
+  hairCenter,
+  HEAD_CENTER,
+  HEAD_RADIUS,
+  LEG,
   MIRROR_VIDEO_PANELS,
-  mirrorHorizontally,
   NAME_TAG,
-  VIDEO_PANEL,
+  TORSO,
+  VIDEO_FACE,
 } from "./avatarLayout";
 import { STRIDE_RADIANS_PER_METER, walkPose } from "./walkPose";
 
@@ -11,27 +23,17 @@ export interface Avatar {
   root: THREE.Group;
   /** Advances the walk animation. `speed` is how fast the avatar is moving (m/s). */
   update: (dt: number, speed: number) => void;
-  /** Shows a camera feed floating above the name tag, or removes it with null. */
+  /** Shows a camera feed in place of the face, or brings the face back with null. */
   setVideo: (element: HTMLVideoElement | null) => void;
   dispose: () => void;
 }
 
-const SKIN_TONES = [0xf1c6a0, 0xd9a06f, 0xb97d4f, 0x8a5a38];
-const HAIR_COLORS = [0x2b1d14, 0x6b4a2b, 0xc9a45c, 0x111111];
-const PANTS_COLOR = 0x2b3140;
 const EYE_COLOR = 0x151515;
 
-const LEG = { width: 0.17, height: 0.8, depth: 0.2, hipX: 0.11 };
-const TORSO = { width: 0.46, height: 0.62, depth: 0.26 };
 const ARM = { width: 0.12, height: 0.58, depth: 0.14, shoulderX: 0.3 };
-const HEAD_RADIUS = 0.15;
 const DEFAULT_VIDEO_ASPECT = 4 / 3;
-
-function hashOf(text: string): number {
-  let hash = 0;
-  for (const char of text) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return hash;
-}
+/** Index of the -z face of a BoxGeometry: the one that looks where the avatar looks. */
+const FRONT_FACE = 5;
 
 function makeLabel(text: string) {
   const canvas = document.createElement("canvas");
@@ -61,15 +63,12 @@ function makeLabel(text: string) {
 }
 
 /**
- * A low-poly person built from boxes: shirt colour, skin and hair are derived
- * from the name so everybody looks a bit different and stays recognisable.
+ * A low-poly person built from boxes, painted and styled as `appearance` says.
  * Facing -z at rotation 0, like the camera.
  */
-export function createAvatar(name: string): Avatar {
-  const hash = hashOf(name);
-  const shirt = new THREE.Color().setHSL((hash % 360) / 360, 0.6, 0.5);
-  const skin = SKIN_TONES[hash % SKIN_TONES.length];
-  const hair = HAIR_COLORS[(hash >>> 3) % HAIR_COLORS.length];
+export function createAvatar(name: string, appearance: Appearance): Avatar {
+  const { skin, hair, shirt, pants } = appearanceColors(appearance);
+  const hairStyle = HAIR_STYLES[appearance.hairStyle];
 
   const paint = (color: THREE.ColorRepresentation) =>
     new THREE.MeshStandardMaterial({ color });
@@ -99,8 +98,8 @@ export function createAvatar(name: string): Avatar {
     return pivot;
   };
 
-  const legL = limb(-LEG.hipX, LEG.height, LEG, PANTS_COLOR);
-  const legR = limb(LEG.hipX, LEG.height, LEG, PANTS_COLOR);
+  const legL = limb(-LEG.hipX, LEG.height, LEG, pants);
+  const legR = limb(LEG.hipX, LEG.height, LEG, pants);
 
   const torso = box(TORSO.width, TORSO.height, TORSO.depth, shirt);
   torso.position.y = LEG.height + TORSO.height / 2;
@@ -114,15 +113,24 @@ export function createAvatar(name: string): Avatar {
     arm.add(hand);
   }
 
-  const headY = LEG.height + TORSO.height + HEAD_RADIUS + 0.02;
+  const headY = HEAD_CENTER;
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(HEAD_RADIUS, 14, 12),
     paint(skin),
   );
   head.position.y = headY;
   head.castShadow = true;
-  const hairCap = box(HEAD_RADIUS * 2.1, 0.09, HEAD_RADIUS * 2.1, hair);
-  hairCap.position.y = headY + HEAD_RADIUS - 0.03;
+  const hairCap = box(HEAD_RADIUS * 2.1, HAIR.height, HEAD_RADIUS * 2.1, hair);
+  hairCap.position.y = hairCenter(false);
+  hairCap.visible = hairStyle !== "none";
+  // Long hair also hangs down behind the head
+  const hairBack =
+    hairStyle === "long"
+      ? box(HAIR.back.width, HAIR.back.height, HAIR.back.depth, hair)
+      : null;
+  if (hairBack) {
+    hairBack.position.set(0, headY - 0.02, hairBackZ(false));
+  }
   const eyes = [-0.06, 0.06].map((x) => {
     const eye = box(0.04, 0.04, 0.02, EYE_COLOR);
     eye.position.set(x, headY + 0.02, -HEAD_RADIUS + 0.005);
@@ -133,18 +141,30 @@ export function createAvatar(name: string): Avatar {
   // Everything but the name tag bobs together
   const rig = new THREE.Group();
   rig.add(legL, legR, torso, armL, armR, head, hairCap, ...eyes);
+  if (hairBack) rig.add(hairBack);
 
   const root = new THREE.Group();
   root.add(rig, makeLabel(name));
 
-  let video: { sprite: THREE.Sprite; stopListening: () => void } | null = null;
+  // The face is what the camera replaces: head and eyes go, a screen takes their place
+  const face = [head, ...eyes];
+  let video: {
+    screen: THREE.Mesh;
+    texture: THREE.VideoTexture;
+    stopListening: () => void;
+  } | null = null;
   const clearVideo = () => {
     if (!video) return;
-    root.remove(video.sprite);
+    rig.remove(video.screen);
     video.stopListening();
-    video.sprite.material.map?.dispose();
-    video.sprite.material.dispose();
+    video.texture.dispose();
+    video.screen.geometry.dispose();
+    for (const material of video.screen.material as THREE.Material[])
+      material.dispose();
     video = null;
+    for (const part of face) part.visible = true;
+    hairCap.position.y = hairCenter(false);
+    hairBack?.position.setZ(hairBackZ(false));
   };
 
   let phase = 0;
@@ -156,27 +176,45 @@ export function createAvatar(name: string): Avatar {
 
       const texture = new THREE.VideoTexture(element);
       texture.colorSpace = THREE.SRGBColorSpace;
-      if (MIRROR_VIDEO_PANELS) mirrorHorizontally(texture);
-      const sprite = new THREE.Sprite(
-        new THREE.SpriteMaterial({ map: texture }),
+      // The skin shows on every side of the screen; the camera only on the front
+      const materials: THREE.Material[] = Array.from({ length: 6 }, (_, i) =>
+        i === FRONT_FACE
+          ? new THREE.MeshBasicMaterial({ map: texture })
+          : paint(skin),
       );
-      sprite.position.y = VIDEO_PANEL.center;
-      // Match the camera's real proportions once they are known
+      const screen = new THREE.Mesh(
+        new THREE.BoxGeometry(
+          VIDEO_FACE.size,
+          VIDEO_FACE.size,
+          VIDEO_FACE.depth,
+        ),
+        materials,
+      );
+      screen.position.y = headY;
+      screen.castShadow = true;
+
+      // Show the middle of the picture, whatever the camera's proportions are
       const fit = () => {
         const aspect =
           element.videoWidth && element.videoHeight
             ? element.videoWidth / element.videoHeight
             : DEFAULT_VIDEO_ASPECT;
-        sprite.scale.set(VIDEO_PANEL.height * aspect, VIDEO_PANEL.height, 1);
+        const crop = faceCrop(aspect, MIRROR_VIDEO_PANELS);
+        texture.repeat.set(...crop.repeat);
+        texture.offset.set(...crop.offset);
       };
       fit();
       element.addEventListener("loadedmetadata", fit);
       element.addEventListener("resize", fit);
       void element.play().catch(() => {}); // muted, so autoplay is allowed; ignore races
 
-      root.add(sprite);
+      for (const part of face) part.visible = false;
+      hairCap.position.y = hairCenter(true);
+      hairBack?.position.setZ(hairBackZ(true));
+      rig.add(screen);
       video = {
-        sprite,
+        screen,
+        texture,
         stopListening: () => {
           element.removeEventListener("loadedmetadata", fit);
           element.removeEventListener("resize", fit);

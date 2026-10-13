@@ -16,9 +16,12 @@ export interface VoiceCredentials {
  * The LiveKit room for a zone. Each private zone gets a room of its own: that
  * is what keeps its audio and video away from everyone else, enforced by the
  * server through the token, not by the client's good manners.
+ *
+ * `prefix` names the company when several share one LiveKit project: without
+ * it their "office" rooms would be the same room.
  */
-export function voiceRoomName(zone: string | null): string {
-  return zone ? `${ROOM_NAME}-${zone}` : ROOM_NAME;
+export function voiceRoomName(zone: string | null, prefix = ""): string {
+  return `${prefix}${zone ? `${ROOM_NAME}-${zone}` : ROOM_NAME}`;
 }
 
 /** Within this distance (meters) other players are heard at full volume. */

@@ -1,11 +1,24 @@
-import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
+import {
+  AccessToken,
+  RoomServiceClient,
+  TrackSource,
+} from "livekit-server-sdk";
 import { voiceRoomName } from "../shared/voice.ts";
 
 export interface VoiceConfig {
   url: string;
   apiKey: string;
   apiSecret: string;
+  /**
+   * In front of every room name, so several companies can share one LiveKit
+   * project without their "office" rooms being the same room. Empty for a
+   * single company.
+   */
+  roomPrefix?: string;
 }
+
+const OPEN_SOURCES = [TrackSource.MICROPHONE, TrackSource.CAMERA];
+const PRIVATE_SOURCES = [...OPEN_SOURCES, TrackSource.SCREEN_SHARE];
 
 const TOKEN_TTL = "2h";
 const PRIVATE_TOKEN_TTL = "2m";
@@ -18,6 +31,17 @@ export interface VoiceStatus {
 
 /** A variable pasted from a dashboard may carry spaces or a line break; an empty one counts as unset. */
 const clean = (value: string | undefined) => value?.trim() || undefined;
+
+/** A company's name as the start of a room name: letters, digits and dashes, short, ending in a dash (or nothing). */
+export function roomPrefixFromEnv(raw: string | undefined): string {
+  const name = (raw ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/g, "");
+  return name ? `${name}-` : "";
+}
 
 /**
  * The browser SDK connects with ws:// or wss://, but dashboards and docs often
@@ -45,8 +69,18 @@ export function voiceStatusFromEnv(env: NodeJS.ProcessEnv): VoiceStatus {
     clean(env.LIVEKIT_API_SECRET) ?? (isDev ? "secret" : undefined);
 
   if (url && apiKey && apiSecret) {
-    const config = { url: normalizeLiveKitUrl(url), apiKey, apiSecret };
-    return { config, summary: `Voice chat is on, using ${config.url}` };
+    const roomPrefix = roomPrefixFromEnv(env.VOICE_ROOM_PREFIX);
+    const config: VoiceConfig = {
+      url: normalizeLiveKitUrl(url),
+      apiKey,
+      apiSecret,
+      // Only when there is one, so a single company's settings are what they always were
+      ...(roomPrefix ? { roomPrefix } : {}),
+    };
+    return {
+      config,
+      summary: `Voice chat is on, using ${config.url}${config.roomPrefix ? ` (rooms start with ${config.roomPrefix})` : ""}`,
+    };
   }
 
   const missing = [
@@ -73,6 +107,16 @@ export interface VoiceAdmin {
   removeParticipant: (room: string, identity: string) => Promise<void>;
 }
 
+/**
+ * LiveKit answers "not found" when asked about a room nobody is in (it deletes
+ * a room as soon as the last person leaves). That is an empty room, not a failure.
+ */
+export function isRoomMissing(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { status, code } = error as { status?: unknown; code?: unknown };
+  return status === 404 || code === "not_found";
+}
+
 export function createVoiceAdmin(config: VoiceConfig): VoiceAdmin {
   // The admin API speaks http(s) on the same host the browsers reach with ws(s)
   const client = new RoomServiceClient(
@@ -81,8 +125,14 @@ export function createVoiceAdmin(config: VoiceConfig): VoiceAdmin {
     config.apiSecret,
   );
   return {
-    listParticipants: async (room) =>
-      (await client.listParticipants(room)).map((p) => p.identity),
+    listParticipants: async (room) => {
+      try {
+        return (await client.listParticipants(room)).map((p) => p.identity);
+      } catch (error) {
+        if (isRoomMissing(error)) return [];
+        throw error;
+      }
+    },
     removeParticipant: (room, identity) =>
       client.removeParticipant(room, identity),
   };
@@ -106,9 +156,11 @@ export async function createVoiceToken(
     ttl: zone ? PRIVATE_TOKEN_TTL : TOKEN_TTL,
   });
   token.addGrant({
-    room: voiceRoomName(zone),
+    room: voiceRoomName(zone, config.roomPrefix),
     roomJoin: true,
     canPublish: true,
+    // Sharing a screen is for private rooms, where there is a screen to show it on
+    canPublishSources: zone ? PRIVATE_SOURCES : OPEN_SOURCES,
     canSubscribe: true,
     canPublishData: false,
   });

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { sameAppearance, type Appearance } from "../../shared/appearance.ts";
 import type { Player } from "../../shared/state.ts";
 import { createAvatar, type Avatar } from "./avatar";
 import { lerp, lerpAngle } from "./math";
@@ -10,7 +11,17 @@ const STILL_SPEED = 0.05;
 interface RemotePlayer {
   player: Player;
   avatar: Avatar;
+  /** The look the avatar was made with: to tell when it has to be made again. */
+  look: Appearance;
 }
+
+const lookOf = (player: Player): Appearance => ({
+  skin: player.skin,
+  hairColor: player.hairColor,
+  hairStyle: player.hairStyle,
+  shirt: player.shirt,
+  pants: player.pants,
+});
 
 /** Renders other players as animated avatars, smoothing network updates. */
 export class RemotePlayers {
@@ -26,11 +37,30 @@ export class RemotePlayers {
   add(sessionId: string, player: Player) {
     if (this.players.has(sessionId)) return;
 
-    const avatar = createAvatar(player.name);
+    const look = lookOf(player);
+    const avatar = createAvatar(player.name, look);
     avatar.root.position.set(player.x, 0, player.z);
     avatar.root.rotation.y = player.yaw;
     this.scene.add(avatar.root);
-    this.players.set(sessionId, { player, avatar });
+    this.players.set(sessionId, { player, avatar, look });
+    avatar.setVideo(this.videos.get(sessionId) ?? null);
+  }
+
+  /** Somebody changed how they look: draw them again, where they stand, unless it is the look they already have. */
+  refresh(sessionId: string, player: Player) {
+    const entry = this.players.get(sessionId);
+    if (!entry) return;
+    const look = lookOf(player);
+    if (sameAppearance(entry.look, look)) return;
+    const previous = entry.avatar;
+    const avatar = createAvatar(player.name, look);
+    avatar.root.position.copy(previous.root.position);
+    avatar.root.rotation.y = previous.root.rotation.y;
+    this.scene.add(avatar.root);
+    this.scene.remove(previous.root);
+    previous.dispose();
+    entry.avatar = avatar;
+    entry.look = look;
     avatar.setVideo(this.videos.get(sessionId) ?? null);
   }
 

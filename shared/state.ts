@@ -6,6 +6,16 @@ export const Player = schema(
     x: t.number(),
     z: t.number(),
     yaw: t.number(),
+    /** How they look: indices into the palettes of appearance.ts. */
+    skin: t.uint8(),
+    hairColor: t.uint8(),
+    hairStyle: t.uint8(),
+    shirt: t.uint8(),
+    pants: t.uint8(),
+    /** Their colour in the chat and the people list: an index, see chatColor.ts. Unique in the room. */
+    chatColor: t.uint8(),
+    /** The id of the private zone they are in, or "" for the open office. */
+    zone: t.string(),
   },
   "Player",
 );

@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+import {
+  AUTH_REQUIRED_CODE,
+  AUTH_UNAVAILABLE_CODE,
+  messageForAuthCode,
+  NOT_MEMBER_CODE,
+} from "../../shared/auth.ts";
+import {
+  FLOOR_CLOSED_CODE,
+  FLOOR_CLOSED_MESSAGE,
+} from "../../shared/floors.ts";
+import { CONNECTION_LOST_MESSAGE, UNREACHABLE_MESSAGE } from "./consts";
+import { messageForDisconnect, messageForJoinError } from "./helpers";
+
+describe("messageForDisconnect", () => {
+  it("says the floor was closed for editing when that is why", () => {
+    expect(messageForDisconnect(FLOOR_CLOSED_CODE)).toBe(FLOOR_CLOSED_MESSAGE);
+  });
+
+  it("says the connection was lost for any other reason", () => {
+    for (const code of [1000, 1006, 4000, 4001, 0]) {
+      expect(messageForDisconnect(code), String(code)).toBe(
+        CONNECTION_LOST_MESSAGE,
+      );
+    }
+  });
+});
+
+describe("messageForJoinError", () => {
+  it("says the floor is closed when the server refused the entry for that reason", () => {
+    const refused = Object.assign(new Error("closed"), {
+      code: FLOOR_CLOSED_CODE,
+    });
+    expect(messageForJoinError(refused)).toBe(FLOOR_CLOSED_MESSAGE);
+  });
+
+  it("says why somebody was not let in: sign in, not invited, or the service is down", () => {
+    for (const code of [
+      AUTH_REQUIRED_CODE,
+      NOT_MEMBER_CODE,
+      AUTH_UNAVAILABLE_CODE,
+    ]) {
+      const refused = Object.assign(new Error("refused"), { code });
+      expect(messageForJoinError(refused), String(code)).toBe(
+        messageForAuthCode(code),
+      );
+    }
+  });
+
+  it("says the server could not be reached for anything else", () => {
+    for (const error of [
+      new Error("network"),
+      Object.assign(new Error("full"), { code: 4002 }),
+      "boom",
+      null,
+      undefined,
+      42,
+    ]) {
+      expect(messageForJoinError(error)).toBe(UNREACHABLE_MESSAGE);
+    }
+  });
+});

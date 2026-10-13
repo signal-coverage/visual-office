@@ -27,6 +27,21 @@ describe("voiceRoomName", () => {
   });
 });
 
+describe("voiceRoomName with a company prefix", () => {
+  it("puts the prefix in front of every room, so two companies on one LiveKit project never meet", () => {
+    expect(voiceRoomName(null, "acme-")).toBe(`acme-${ROOM_NAME}`);
+    expect(voiceRoomName("meeting", "acme-")).toBe(
+      `acme-${voiceRoomName("meeting")}`,
+    );
+    expect(voiceRoomName(null, "acme-")).not.toBe(voiceRoomName(null, "beta-"));
+  });
+
+  it("changes nothing without one", () => {
+    expect(voiceRoomName(null, "")).toBe(voiceRoomName(null));
+    expect(voiceRoomName("meeting", "")).toBe(voiceRoomName("meeting"));
+  });
+});
+
 describe("peerVolume", () => {
   it("fades with distance in the open office", () => {
     expect(peerVolume(1, null)).toBe(1);

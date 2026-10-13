@@ -11,11 +11,12 @@ export const VOICE_LABEL: Record<VoiceState, string> = {
 
 export const CAMERA_SUFFIX = " · Camera on";
 
+/** The dot of each state, as a Tailwind background class. */
 export const VOICE_COLOR: Record<VoiceState, string> = {
-  unavailable: "#888",
-  idle: "#888",
-  connecting: "#f5b942",
-  live: "#3ddc84",
-  muted: "#ff5c5c",
-  error: "#ff5c5c",
+  unavailable: "bg-[#888]",
+  idle: "bg-[#888]",
+  connecting: "bg-[#f5b942]",
+  live: "bg-[#3ddc84]",
+  muted: "bg-[#ff5c5c]",
+  error: "bg-[#ff5c5c]",
 };

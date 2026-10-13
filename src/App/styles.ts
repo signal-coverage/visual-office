@@ -51,3 +51,7 @@ export const hint: CSSProperties = {
   right: 16,
   fontSize: 12,
 };
+
+/** The way into the menu for whoever does not know Esc: it only works when the mouse is free. */
+export const menuButton =
+  "fixed right-4 top-4 h-auto min-h-0 rounded-lg bg-black/55 px-3 py-1.5 text-[13px] font-normal text-white";

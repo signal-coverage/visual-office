@@ -1,3 +1,4 @@
+import { Input } from "@heroui/react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { MAX_CHAT_LENGTH } from "../../../shared/chat.ts";
 import {
@@ -57,19 +58,25 @@ export function ChatPanel({
   };
 
   return (
-    <div style={styles.container}>
-      <ul style={styles.list}>
+    <div className={styles.container}>
+      <ul className={styles.list}>
         {messages.slice(-MAX_VISIBLE_MESSAGES).map((m) => (
-          <li key={`${m.id}-${m.at}`} style={styles.message}>
-            <strong style={styles.author}>{m.name}</strong>
+          <li key={`${m.id}-${m.at}`} className={styles.message}>
+            <strong
+              className={styles.author}
+              style={styles.authorColor(m.color)}
+            >
+              {m.name}
+            </strong>
             {m.text}
           </li>
         ))}
       </ul>
       {isOpen ? (
-        <input
+        <Input
           ref={inputRef}
-          style={styles.input}
+          aria-label={INPUT_PLACEHOLDER}
+          className={styles.input}
           value={draft}
           maxLength={MAX_CHAT_LENGTH}
           placeholder={INPUT_PLACEHOLDER}
@@ -77,7 +84,7 @@ export function ChatPanel({
           onKeyDown={handleKeyDown}
         />
       ) : (
-        <div style={styles.hint}>{CLOSED_HINT}</div>
+        <div className={styles.hint}>{CLOSED_HINT}</div>
       )}
     </div>
   );
