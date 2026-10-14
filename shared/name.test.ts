@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NAME, MAX_NAME_LENGTH, sanitizeName } from "./name.ts";
+import {
+  cleanName,
+  DEFAULT_NAME,
+  MAX_NAME_LENGTH,
+  sanitizeName,
+} from "./name.ts";
 
 describe("sanitizeName", () => {
   it("trims surrounding whitespace", () => {
@@ -27,5 +32,15 @@ describe("sanitizeName", () => {
 
   it("falls back when only control characters remain", () => {
     expect(sanitizeName("\u0000\u0001")).toBe(DEFAULT_NAME);
+  });
+});
+
+describe("cleanName", () => {
+  it("is what sanitizeName keeps, or empty when nothing is left", () => {
+    expect(cleanName("  Ana  ")).toBe("Ana");
+    expect(cleanName("")).toBe("");
+    expect(cleanName("\u0000 \u0007")).toBe("");
+    expect(cleanName(undefined)).toBe("");
+    expect(cleanName(3)).toBe("");
   });
 });

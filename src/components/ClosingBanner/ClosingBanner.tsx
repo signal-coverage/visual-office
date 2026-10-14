@@ -18,7 +18,7 @@ export function ClosingBanner({ seconds }: ClosingBannerProps) {
 
   if (seconds === null) return null;
   return (
-    <div style={styles.banner} role="alert">
+    <div className={styles.banner} role="alert">
       {closingText(Math.max(0, seconds - elapsed))}
     </div>
   );

@@ -1,11 +1,13 @@
-import { TokenVerifier } from "livekit-server-sdk";
+import { TokenVerifier, TrackSource, TrackType } from "livekit-server-sdk";
 import { describe, expect, it } from "vitest";
 import { ROOM_NAME } from "../shared/constants.ts";
 import { voiceRoomName } from "../shared/voice.ts";
 import {
+  createVoiceAdmin,
   createVoiceToken,
   isRoomMissing,
   voiceConfigFromEnv,
+  voiceSources,
   voiceStatusFromEnv,
 } from "./voice.ts";
 
@@ -292,5 +294,158 @@ describe("createVoiceToken", () => {
         "another-secret-entirely-different",
       ).verify(token),
     ).rejects.toThrow();
+  });
+});
+
+describe("voiceSources", () => {
+  it("is the microphone and the camera, and a screen only in a private room", () => {
+    expect(voiceSources(null, true)).toEqual([
+      TrackSource.MICROPHONE,
+      TrackSource.CAMERA,
+    ]);
+    expect(voiceSources("meeting", true)).toEqual([
+      TrackSource.MICROPHONE,
+      TrackSource.CAMERA,
+      TrackSource.SCREEN_SHARE,
+    ]);
+  });
+
+  it("leaves the microphone out of somebody who may not speak, and nothing else", () => {
+    expect(voiceSources(null, false)).toEqual([TrackSource.CAMERA]);
+    expect(voiceSources("meeting", false)).toEqual([
+      TrackSource.CAMERA,
+      TrackSource.SCREEN_SHARE,
+    ]);
+  });
+});
+
+describe("createVoiceToken for somebody who may not speak", () => {
+  const config = {
+    url: "ws://localhost:7880",
+    apiKey: "devkey",
+    apiSecret: "a-long-enough-test-secret-value",
+  };
+
+  it("has no microphone among what it lets them publish, so a rejoin does not undo a mute", async () => {
+    const verifier = new TokenVerifier(config.apiKey, config.apiSecret);
+    for (const zone of [null, "meeting"]) {
+      const claims = await verifier.verify(
+        await createVoiceToken(config, "s", "Alice", zone, false),
+      );
+      expect(claims.video?.canPublishSources).not.toContain("microphone");
+      expect(claims.video?.canPublishSources).toContain("camera");
+      expect(claims.video?.canPublish).toBe(true);
+    }
+  });
+});
+
+describe("VoiceAdmin.setCanSpeak", () => {
+  const config = {
+    url: "ws://localhost:7880",
+    apiKey: "devkey",
+    apiSecret: "a-long-enough-test-secret-value",
+  };
+  const track = (sid: string, source: TrackSource, muted = false) => ({
+    sid,
+    source,
+    muted,
+    type: TrackType.AUDIO,
+  });
+
+  const fakeClient = (
+    tracks: Array<ReturnType<typeof track>>,
+    failWith?: unknown,
+  ) => {
+    const calls: unknown[][] = [];
+    return {
+      calls,
+      client: {
+        listParticipants: async () => [],
+        removeParticipant: async () => {},
+        getParticipant: async (...args: unknown[]) => {
+          calls.push(["get", ...args]);
+          if (failWith) throw failWith;
+          return { tracks };
+        },
+        updateParticipant: async (...args: unknown[]) => {
+          calls.push(["update", ...args]);
+          if (failWith) throw failWith;
+        },
+        mutePublishedTrack: async (...args: unknown[]) => {
+          calls.push(["mute", ...args]);
+        },
+      },
+    };
+  };
+
+  it("takes the microphone out of what they may publish, and silences what is already on", async () => {
+    const { client, calls } = fakeClient([
+      track("TR_mic", TrackSource.MICROPHONE),
+      track("TR_cam", TrackSource.CAMERA),
+    ]);
+    const admin = createVoiceAdmin(config, client as never);
+    await admin.setCanSpeak("office", "session-1", null, false);
+    expect(calls).toContainEqual([
+      "update",
+      "office",
+      "session-1",
+      undefined,
+      {
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: false,
+        canPublishSources: [TrackSource.CAMERA],
+      },
+    ]);
+    expect(calls).toContainEqual([
+      "mute",
+      "office",
+      "session-1",
+      "TR_mic",
+      true,
+    ]);
+    expect(calls.filter((call) => call[0] === "mute")).toHaveLength(1);
+  });
+
+  it("gives the microphone back without touching any track", async () => {
+    const { client, calls } = fakeClient([
+      track("TR_mic", TrackSource.MICROPHONE, true),
+    ]);
+    const admin = createVoiceAdmin(config, client as never);
+    await admin.setCanSpeak("office", "session-1", "meeting", true);
+    expect(calls).toEqual([
+      [
+        "update",
+        "office",
+        "session-1",
+        undefined,
+        {
+          canPublish: true,
+          canSubscribe: true,
+          canPublishData: false,
+          canPublishSources: [
+            TrackSource.MICROPHONE,
+            TrackSource.CAMERA,
+            TrackSource.SCREEN_SHARE,
+          ],
+        },
+      ],
+    ]);
+  });
+
+  it("does nothing, without failing, for somebody who is not in the call yet", async () => {
+    const { client } = fakeClient([], { status: 404, code: "not_found" });
+    const admin = createVoiceAdmin(config, client as never);
+    await expect(
+      admin.setCanSpeak("office", "session-1", null, false),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not hide any other failure", async () => {
+    const { client } = fakeClient([], new Error("LiveKit is down"));
+    const admin = createVoiceAdmin(config, client as never);
+    await expect(
+      admin.setCanSpeak("office", "session-1", null, false),
+    ).rejects.toThrow("LiveKit is down");
   });
 });

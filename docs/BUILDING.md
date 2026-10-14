@@ -37,6 +37,8 @@ independent when one crashes.
 | Floor head | Everything a member can, plus edit and publish their floor |
 | Admin      | Create floors, assign heads, read the audit log            |
 
+Floor heads and admins may also moderate (see "Moderation and the audit log" below).
+
 Rules:
 
 - A floor has **one head role** (the highest rank of that area); who holds it comes from the
@@ -150,6 +152,24 @@ Checked in a browser: an admin sees the list, ticks "head of office", and it is 
 person, as **only a head**, is offered **Edit this floor** but not **Manage people**, gets 403 for
 the people list and for naming heads, and can still close and open their floor.
 
+**Done: letting people choose their name.** With sign-in on, everybody is called what their profile
+says. An admin can turn on the company setting **Let people choose their own name** (**Settings** in
+the lobby, admins only); the lobby then lets everybody type the name others see.
+
+- **Off by default.** The setting is `allow_name_edit` in the existing `settings` table (no new
+  table, no migration); anything other than `"true"` counts as off.
+- **The server enforces it**, whatever the client shows or sends: when the player joins
+  (`server/playerName.ts`), signed in with the setting off means the profile name even if the client
+  sent another; with it on, the sanitized name the client sent, or the profile name when that is
+  empty or not text. Without sign-in the client's name is used, as before. If the setting cannot be
+  read, the name stays locked.
+- `GET /admin/settings` answers `{allowNameEdit}`; `POST /admin/settings` with
+  `{allowNameEdit: true | false}` (a real boolean, else 400) changes it. Admins and the server's own
+  tools only: 403 for floor heads and members, 401 without a caller.
+- `GET /account/session` also answers `canEditName` so the lobby knows whether to unlock the field.
+  The field is prefilled with the last name the person typed (this browser), or their profile name.
+- A change takes effect for the next person who joins; people already inside keep their name.
+
 **Not done yet, and what to do about each**
 
 - **Admins still come only from `ADMIN_EMAILS`.** Making somebody an admin from the game would let
@@ -202,6 +222,39 @@ send anybody to Clerk's hosted pages.
 the person creates or picks an organization, the game cannot tell them from a signed-out visitor,
 and they have to sign in a second time. The setting cannot be changed from the API.
 
+### Moderation and the audit log
+
+**Done: moderation.** One policy, `mayModerate` in [`server/moderation.ts`](../server/moderation.ts): an admin, or the head of that floor, may act; nobody acts on themselves; nobody acts on an admin (a head or an admin cannot moderate an admin). The actor and the target's roles are looked up by the server when the action arrives (`server/moderationService.ts`), never taken from the message.
+
+- **In the game:** the menu (Esc) has **Moderation** only when the server said so on joining (`moderator` message). It lists the people in the roster with **Mute**, **Let speak**, **Remove** and **Ban** (length field, 10 minutes by default); remove and ban ask first. The client sends `moderate {action, target: session, minutes?}`; the room maps the session to the account and answers `moderated`.
+- **From outside the game:** `POST /admin/moderation` `{action, userId, minutes?, floor?}` (same policy; the server's own tools may too). The **People** screen uses it: Ban / Lift ban, Remove, Mute, Let speak per person, and shows who is banned and until when (`bannedUntil` in `GET /admin/people`).
+- **Mute is done with LiveKit's server API**, not by asking the client: `updateParticipant` takes the microphone out of `canPublishSources` (so it cannot be turned on again) and any microphone track already published is muted with `mutePublishedTrack`. The room also remembers the session as muted, so the token it issues when the person walks into another zone has no microphone. It lasts until they leave the office. The client is told (`voiceMuted`) so its button says why it does not work.
+- **Remove:** the connection is closed with code `4005` and the message _"You were removed from the office by a moderator."_. The game only joins again by itself after a layout update (4004), so there is no rejoin loop.
+- **Ban:** 1 to 240 minutes (10 by default, bounded on the server whatever is sent). It also removes the person (code `4006`), and `onAuth` refuses their account id with the same code until it ends. A ban for somebody who is not in the office applies when they try to enter. Lifting one is `unban`.
+- **Why bans are in memory** (`server/banStore.ts`): they are short and bounded, a table would be one more thing to keep in step for little gain. The cost: a restart forgets them, and several game servers would not share them. Bans work on signed-in accounts only, and moderation needs sign-in anyway. _Instead:_ a `bans` table (`user_id`, `until`) with a memory twin, as the other stores do.
+
+**Done: the audit log.** Table `audit_log` (`id`, `at`, `actor_user_id`, `actor_name`, `action`, `target_user_id`, `target_name`, `floor`, `detail jsonb`), migration `008_audit_log`, `AuditStore` with a memory and a Postgres version tested against the same cases. Names are copied into the row so it still reads right later. The app only appends.
+
+- **Recorded:** moderation (`moderation.mute|unmute|kick|ban|unban`, with the minutes), a floor closed and opened (`floor.lock|unlock`; carrying on an editing session and heartbeats are not), layouts (`layout.publish|revert|mark`, with the version), heads (`head.assign|remove`, only when something changed), the company setting (`settings.allow_name_edit`) and setting the company up (`company.setup`). Not recorded: people signing in (it would be one row per visit; the `users` table already has `seen_at`).
+- **A log that cannot be written never blocks the action** (it is only reported in the server log): the action already happened.
+- **Read:** `GET /admin/audit?limit=&before=` answers `{entries, nextBefore}`, newest first; `limit` defaults to 50 and is at most 200, `before` is the id of the last entry already seen. Admins and the server's own tools only (403 for heads and members). The lobby's **Activity** screen (admins) shows it as a table with **Load more**; the one-line texts come from `describeAudit` in `shared/audit.ts`.
+- **Retention:** none; the table only grows (a few rows per editing session or moderation action). _Instead:_ a scheduled `DELETE FROM audit_log WHERE at < ...` (or monthly partitions) in the database provider; no cron in the app.
+
+### Room calendars
+
+Goal: people can see what is on in a private room (now, next, the day) so they know when to join. **Read-only, no booking, no OAuth, no Google or Microsoft API**: the credentials for those are not available, so an admin pastes an iCalendar (ICS) feed address instead.
+
+- **Storage:** the address of each room is a row of the existing `settings` table, key `calendar_feed:<zone id>` (an empty value means none). No migration. Only admins ever receive it (it can contain a secret token): members get titles and times only.
+- **Admin API** (`server/calendarAdmin.ts`, admins and server tools; 401/403 otherwise): `GET /admin/calendars` lists the rooms with their address; `POST /admin/calendars` `{room, url}` validates, saves and tests it (answers `{test: {ok, upcoming} | {ok: false, error}}`), an empty `url` removes it; `POST /admin/calendars/test` `{url}` only tests. Audit actions `calendar.set` and `calendar.clear` record who and the room, never the address.
+- **Member API:** `GET /calendar?dayStart=&dayEnd=&date=` (the day of the viewer, in ms plus `YYYY-MM-DD`; signed in when sign-in is on) answers, per room, `current`, `next` and `today` (title, start, end, all-day; no attendees, no descriptions; titles are cleaned and cut at 80 characters, 30 events per day).
+- **Fetcher** (`server/calendarFetch.ts`): https only (`webcal://` is read as https), port 443, no credentials in the address, no local-looking names; the name is resolved and **every** address must be public (no private, loopback, link-local, CGNAT, multicast or reserved IPv4/IPv6, including IPv4-mapped and 6to4), and the connection goes to the address that was checked, so the name cannot change in between. Each redirect (3 at most) is checked again. 1 MB and 5 s caps, content type ignored (the body must contain `BEGIN:VCALENDAR`), no compression. Errors never include the address.
+- **Cache** (`server/calendarService.ts`): a feed is read at most every 5 minutes; if a read fails the last good answer keeps being served (marked stale in the Calendar screen) and the feed is retried after 1 minute. One request is shared between people asking at once.
+- **Parser** (`server/ics.ts`): DTSTART/DTEND/DURATION, all-day events, UTC times, TZID times converted with `Intl` (IANA names and the common Windows names Outlook uses), line folding, escaped text, RRULE DAILY/WEEKLY/MONTHLY with INTERVAL, COUNT, UNTIL, BYDAY (with an ordinal for monthly) and BYMONTHDAY, EXDATE, moved or cancelled single occurrences (RECURRENCE-ID), cancelled events ignored. It expands only a bounded window (2 days back, 7 ahead) and never throws: garbage gives an empty list.
+- **Limits:** a TZID it does not know, and floating times without `X-WR-TIMEZONE`, are read as UTC; YEARLY and other frequencies, RDATE and WKST are ignored (a YEARLY event shows only its first date). Feed changes take up to 5 minutes to show, and the badge refreshes every minute.
+- **Client:** `src/calendar/` (fetch, and pure formatters in the time zone of the viewer via `Intl`), the badge (`CalendarBadge`, main chunk, one line), and two lazy screens: `CalendarView` (menu item **Room calendars**) and `CalendarsAdmin` (lobby button **Calendars**, admins).
+- **Test-only flag:** `CALENDAR_ALLOW_LOCAL_FOR_TESTS=1` lets feeds be plain http and on this machine so a local test server can serve an ICS. `calendarOptionsFromEnv` ignores it when `NODE_ENV=production` (tested), and the server prints a warning when it is on.
+- _Instead (later):_ a real Google/Microsoft OAuth integration would give push updates, private calendars without a secret URL and booking from the game. It needs an app registration and credentials per company, token storage and refresh; the room-facing API above would stay the same.
+
 ### Looks and the in-game menu
 
 Esc (or the **Menu** button) releases the mouse and opens the menu: your character, the controls,
@@ -212,6 +265,42 @@ rebuild that avatar. Who may change it is decided in one place, `mayChangeLook` 
 `users.appearance` (migration `007_user_appearance`), returned by `GET /account/session`; others
 keep it in the browser. Options (mouse sensitivity, key hints) live in the browser only
 (`visual-office:settings`).
+
+### Presence status and emotes
+
+Each player shows what they are doing: available, in a meeting, do not disturb or away. It is the
+`status` field of the `Player` schema, so everybody sees it as a dot on the name tag, in the people
+list, and in the menu (Esc, **Your status**). The server decides the value players see
+(`effectiveStatus` in `shared/presence.ts`):
+
+- The player's choice (`status` message, 400 ms cooldown, only values from the list) wins when it is
+  not available.
+- An available player in a private zone shows as in a meeting; an available one with no input for
+  `IDLE_AFTER_MS` (5 minutes, sent by the game as an `idle` message) shows as away and is available
+  again at the next input. A do-not-disturb is never overridden.
+- Who may change it is `mayChangeStatus` in `server/presence.ts` (everybody, for now).
+
+Emotes are a fixed list (`shared/emotes.ts`). The client sends `emote`; the server validates it
+against the list, allows one a second per player and broadcasts `{id, emote}`. Each client moves the
+avatar's arms (`src/game/emotePose.ts`, pure and tested) and floats an icon for 3 seconds. Nothing
+is stored: a player who joins later sees nothing of an emote already over.
+
+Not done: the idle rule is checked by the browser, so a modified client can pretend to be away or
+back; it only changes its own dot. Status is not kept between visits.
+
+### Chat scopes, direct messages and knocks
+
+The `chat` message carries `{text, scope, to?}` (`sanitizeChatRequest` in `shared/chat.ts`; no scope means everyone, for older pages). The server alone picks the recipients (`routeChat` in `server/chatRouting.ts`, pure and tested), from where players really are, with the same 400 ms cooldown and sanitising as before:
+
+- **everyone**: the whole room. **nearby**: follows the voice: in a private zone the people in that zone, in the open office the people in the open office who could be heard (`peerVolume > 0`, under 10 m).
+- **dm**: only the sender and the target (a session id the server looks up). Unknown or gone target: `chatRefused {reason: "gone"}`; yourself: `"self"`.
+- Each copy carries `quiet` set by the server: the sender's own copy, and any copy for a do-not-disturb player. The client shows those in the panel and in the unread badge but makes no toast, sound or desktop notification.
+
+The client side is `src/chat/`: `alerts.ts` (what a message should do: unread, toast text, tab title `(2) Visual Office` while hidden, desktop notification rule), `sound.ts` (generated WebAudio beeps, no files) and `desktop.ts` (browser Notification API). Settings `notificationSound` (default on) and `desktopNotifications` (default off; turning it on in Esc, Options, asks the browser for permission from the click) are in `src/App/settings.ts`.
+
+**Knock** (`knock` message, key K or the menu): `routeKnock` in `server/knockRouting.ts` uses the server's own position and yaw of the sender. Within 2.5 m of a private room's boundary it tells the people inside (`place` is the zone); otherwise it tells the nearest person in the same room within 3 m and 30 degrees of where the sender faces. Do-not-disturb players are skipped without the knocker learning it. One knock accepted per 5 s per player (`knocked {reason: "cooldown"}` otherwise). No door logic changes.
+
+Not done: nothing is stored (late joiners see no history); the unread count is only for direct messages; the nearby rule uses the voice distance, not walls.
 
 ## 5. The floor lock (implemented)
 
@@ -356,11 +445,17 @@ The dev editor is a separate page and a development tool. For heads it becomes p
   database instead of writing a file.
 - Members never receive the editor code (a separate lazy-loaded bundle) and the server refuses any
   publish without the head role, whatever the client says.
-- Every lock and publish goes to an **audit log**: who, which floor, when, what changed.
+- Every lock and publish goes to an **audit log**: who, which floor, when, what changed (done, see below).
 
 _Instead of editing inside the game_ (smaller first step): keep the editor as a separate internal
 page, protected by the same sign-in. It is quicker to build and keeps the game bundle untouched, but
 heads leave the game to edit.
+
+## 7b. Bundle, quality and lite mode
+
+- **Chunks.** `vite.config.ts` (`codeSplitting.groups`) puts `three`, `react`, `clerk` and `colyseus` in their own cacheable chunks. `AppEntry` (`src/App/AppEntry.tsx`) lazy-loads either the 3D office (`App`, with Three.js) or the lite screen, wrapped in `ErrorBoundary` + `LoadFailed` (Reload). The menu shell stays static inside `App`. Before: main chunk 874 kB (267 kB gzip). After: entry chunk 33 kB (12 kB gzip); the largest chunk is `three` at 737 kB. The warning limit stays at 800 kB. The total a desktop downloads on first visit is about the same: the gain is caching and not downloading the 3D code on lite devices.
+- **Quality.** `src/game/quality.ts` holds the pure parts (profiles, `resolveLevel`, `stepAutoQuality`, `farUpdateDue`); `Game` applies them (pixel ratio, sun shadows, far avatar updates in `RemotePlayers.update`). Auto only goes down (4 s under 30 fps after 3 s of warm-up, frames over 1 s ignored), which is the hysteresis: it cannot flap. The antialias is fixed when the WebGL context is created, so it follows the level at page load only. The choice is `quality` in `settings.ts`.
+- **Lite mode.** `src/lite/device.ts` decides (`chooseView`): no WebGL, then touch-only (coarse pointer and no mouse), then width under 768 px; `?view=lite|office` overrides all but no-WebGL. I went for the full version, not the reduced one: `LiteSession` uses the same `network.connect` and `CallController` (audio only, `receiveVideo: false`) as the game, never sends moves, and tunes every remote person at distance 0 (full volume). The UI is `LiteOffice`, reusing `ChatPanel`, `UserList`, `VoiceIndicator` and `CalendarView`.
 
 ## 8. Build order
 

@@ -145,6 +145,7 @@ export function AccountGate({ children }: AccountGateProps) {
     return children({
       organizationId: session.organizationId,
       appearance: session.appearance,
+      canEditName: session.canEditName,
       user: session.user,
     });
 

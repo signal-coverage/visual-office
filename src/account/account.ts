@@ -7,6 +7,8 @@ export type Session =
       organizationId: string;
       /** The look they chose last, or null if they never chose one (or it is not valid). */
       appearance: Appearance | null;
+      /** Whether the company lets people choose their own name. */
+      canEditName: boolean;
       user: {
         id: string;
         name: string;
@@ -56,6 +58,7 @@ export async function fetchSession(
           state: "member",
           organizationId: body.organizationId,
           appearance: parseAppearance(body.appearance),
+          canEditName: body.canEditName === true,
           user: {
             id: user.id,
             name: user.name,

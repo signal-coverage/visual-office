@@ -2,6 +2,7 @@ import "./env.ts";
 import { Server } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { ROOM_NAME, SERVER_PORT } from "../shared/constants.ts";
+import { FLOOR_ID } from "../shared/floors.ts";
 import { FURNITURE } from "../shared/layout.ts";
 import { findProblems } from "../shared/officeProblems.ts";
 import { PROPS } from "../shared/props.ts";
@@ -9,16 +10,29 @@ import type { IncomingMessage } from "node:http";
 import { handleAccount } from "./account.ts";
 import { resolveActor } from "./actor.ts";
 import { authenticateJoin, setSignIn, setUserStore, users } from "./auth.ts";
+import { auditLog, recordAudit, setAuditStore } from "./audit.ts";
 import { authStatusFromEnv } from "./authStatus.ts";
+import { bans } from "./banStore.ts";
 import { clerkAuthFromEnv } from "./clerkAuth.ts";
 import { createCompany } from "./company.ts";
+import {
+  companySettings,
+  createCompanySettings,
+  setCompanySettings,
+} from "./companySettings.ts";
+import { handleCalendarAdmin } from "./calendarAdmin.ts";
+import { calendarOptionsFromEnv, createFeedFetcher } from "./calendarFetch.ts";
+import { handleCalendar } from "./calendarRooms.ts";
+import { createCalendarService } from "./calendarService.ts";
 import { allowedOriginsFromEnv, corsHeadersFor } from "./cors.ts";
 import { connectDatabase, databaseUrlFromEnv } from "./db/connect.ts";
 import { migrate } from "./db/migrate.ts";
+import { handleAuditAdmin } from "./auditAdmin.ts";
 import { authorizeAdmin, handleFloorAdmin } from "./floorAdmin.ts";
 import {
   closeFloor,
   floorLocks,
+  floorRooms,
   KNOWN_FLOORS,
   layouts,
   refreshFloor,
@@ -26,13 +40,17 @@ import {
   setLayoutStore,
 } from "./floors.ts";
 import { handleLayoutAdmin, MAX_LAYOUT_BODY_BYTES } from "./layoutAdmin.ts";
+import { handleModerationAdmin } from "./moderationAdmin.ts";
+import { PgAuditStore } from "./pgAuditStore.ts";
 import { PgFloorLocks } from "./pgFloorLocks.ts";
 import { handlePeopleAdmin } from "./peopleAdmin.ts";
+import { handleSettingsAdmin } from "./settingsAdmin.ts";
 import { PgLayoutStore } from "./pgLayoutStore.ts";
 import { PgSettingsStore } from "./pgSettingsStore.ts";
 import { PgUserStore } from "./pgUserStore.ts";
 import { MemorySettingsStore, type SettingsStore } from "./settingsStore.ts";
 import { OfficeRoom } from "./OfficeRoom.ts";
+import { ZONES } from "../shared/zones.ts";
 import { voiceStatusFromEnv } from "./voice.ts";
 
 const port = Number(process.env.PORT ?? SERVER_PORT);
@@ -48,14 +66,31 @@ if (databaseUrl) {
   setLayoutStore(new PgLayoutStore(pool));
   setUserStore(new PgUserStore(pool));
   settings = new PgSettingsStore(pool);
+  setAuditStore(new PgAuditStore(pool));
   console.log(
-    "Database connected: floor locks, layouts and people are kept in it",
+    "Database connected: floor locks, layouts, people and the audit log are kept in it",
   );
 } else {
   console.log(
-    "No DATABASE_URL: floor locks, layouts and people are kept in memory and lost on restart",
+    "No DATABASE_URL: floor locks, layouts, people and the audit log are kept in memory and lost on restart",
   );
 }
+
+setCompanySettings(createCompanySettings(settings));
+
+// What the rooms are doing, from the calendar feeds the admins paste: read-only
+const calendarOptions = calendarOptionsFromEnv(process.env);
+if (calendarOptions.allowLocalForTests)
+  console.warn(
+    "CALENDAR_ALLOW_LOCAL_FOR_TESTS is on: calendar feeds may be plain http and on this machine. For tests only.",
+  );
+const calendar = createCalendarService({
+  store: settings,
+  fetchFeed: createFeedFetcher({
+    allowLocalForTests: calendarOptions.allowLocalForTests,
+  }),
+  rooms: ZONES.map((zone) => zone.id),
+});
 
 // The company: which Clerk organization its people are in. CLERK_ORGANIZATION_ID decides
 // when it is set; otherwise the first admin sets it up from the game and it is kept in the database
@@ -65,7 +100,13 @@ const company = createCompany({
 });
 
 // Sign-in (Clerk) is on when its keys are there; without them everybody may enter, as before
-const clerkAuth = clerkAuthFromEnv(process.env, users, company);
+const clerkAuth = clerkAuthFromEnv(
+  process.env,
+  users,
+  company,
+  companySettings,
+  recordAudit,
+);
 setSignIn(clerkAuth);
 if (clerkAuth) {
   const organizationId = await company.get();
@@ -155,6 +196,36 @@ const server = new Server({
       })();
     });
 
+    // What the rooms are doing (titles and times): for anybody who is in the company
+    app.use("/calendar", (req, res) => {
+      if (handleCors(req, res)) return;
+      void (async () => {
+        const token = /^Bearer (S+)$/.exec(
+          req.headers.authorization ?? "",
+        )?.[1];
+        // Null means sign-in is off and everybody may enter
+        const who = await authenticateJoin(token);
+        if (who && !who.ok) {
+          res.status(401).json({ error: "Sign in first." });
+          return;
+        }
+        const path = `/calendar${req.url.split("?")[0]}`.replace(/\/$/, "");
+        const query = Object.fromEntries(
+          new URL(req.url, "http://localhost").searchParams,
+        );
+        const reply = await handleCalendar(
+          { method: req.method, path, query },
+          {
+            calendar,
+            rooms: ZONES.map(({ id, label }) => ({ id, label })),
+          },
+        );
+        res
+          .status(reply?.status ?? 404)
+          .json(reply?.body ?? { error: "Not found." });
+      })();
+    });
+
     app.use("/admin", (req, res) => {
       if (handleCors(req, res)) return;
       void (async () => {
@@ -182,24 +253,51 @@ const server = new Server({
         const isLayout = /\/layout(\/|$)/.test(path);
         const body = await readJson(
           req,
-          isLayout ? MAX_LAYOUT_BODY_BYTES : 2048,
+          isLayout ? MAX_LAYOUT_BODY_BYTES : 4096,
         );
-        const request = { method: req.method, path, body, actor };
+        const query = Object.fromEntries(
+          new URL(req.url, "http://localhost").searchParams,
+        );
+        const request = { method: req.method, path, query, body, actor };
         const reply =
           (await handleLayoutAdmin(request, {
             layouts,
             locks: floorLocks,
             knownFloors: KNOWN_FLOORS,
             onPublished: refreshFloor,
+            audit: recordAudit,
           })) ??
           (await handlePeopleAdmin(request, {
             users,
             knownFloors: KNOWN_FLOORS,
+            audit: recordAudit,
+            bans,
+          })) ??
+          (await handleSettingsAdmin(request, {
+            settings: companySettings,
+            audit: recordAudit,
+          })) ??
+          (await handleCalendarAdmin(request, {
+            calendar,
+            rooms: ZONES.map(({ id, label }) => ({ id, label })),
+            audit: recordAudit,
+            allowLocalForTests: calendarOptions.allowLocalForTests,
+          })) ??
+          (await handleAuditAdmin(request, { audit: auditLog })) ??
+          (await handleModerationAdmin(request, {
+            users,
+            bans,
+            rooms: floorRooms,
+            audit: recordAudit,
+            now: Date.now,
+            knownFloors: KNOWN_FLOORS,
+            floor: FLOOR_ID,
           })) ??
           (await handleFloorAdmin(request, {
             locks: floorLocks,
             knownFloors: KNOWN_FLOORS,
             closeFloor,
+            audit: recordAudit,
           }));
         res
           .status(reply?.status ?? 404)

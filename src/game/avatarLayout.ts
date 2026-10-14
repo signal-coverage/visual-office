@@ -4,48 +4,74 @@
  * office ceiling (see OFFICE_HEIGHT).
  */
 
-export const LEG = { width: 0.17, height: 0.8, depth: 0.2, hipX: 0.11 };
-export const TORSO = { width: 0.46, height: 0.62, depth: 0.26 };
-export const HEAD_RADIUS = 0.15;
+/*
+ * The body is the prototype's: a blocky person 1.95 m tall. Every piece is a
+ * box; a leg or an arm swings around its top edge (the hip, the shoulder).
+ */
+export const LEG = { width: 0.2, height: 0.84, depth: 0.22, hipX: 0.13 };
+export const TORSO = { width: 0.52, height: 0.6, depth: 0.28 };
+/** The middle of the torso: its bottom edge tucks 2 cm into the legs. */
+export const TORSO_CENTER = 1.12;
+/** The sleeve; the hand hangs from its end. */
+export const ARM = { width: 0.15, height: 0.5, depth: 0.18, shoulderX: 0.34 };
+export const HAND = { width: 0.13, height: 0.2, depth: 0.15 };
+/** Where the arm hangs from: just below the top of the torso. */
+export const SHOULDER_Y = 1.4;
+export const HEAD = { width: 0.4, height: 0.42, depth: 0.38 };
 
 /** The middle of the head. */
-export const HEAD_CENTER = LEG.height + TORSO.height + HEAD_RADIUS + 0.02;
+export const HEAD_CENTER = 1.66;
 
 /** The top of the hair. */
-export const HEAD_TOP = 1.76;
+export const HEAD_TOP = 1.95;
+/** The whole avatar, standing. */
+export const AVATAR_HEIGHT = HEAD_TOP;
 
-export const NAME_TAG = { center: 2.05, height: 0.4 };
+/** Two small dark squares on the front of the head. */
+export const EYES = { xs: [-0.09, 0.09], size: 0.06, dy: 0.04, depth: 0.01 };
+
+export const NAME_TAG = { center: 2.25, height: 0.4 };
 
 /**
  * Somebody's camera takes the place of their face: the head becomes a square
- * screen of this size (and thickness), with the hair resting on top of it.
+ * screen as wide and deep as the head, with the hair resting on top of it.
  */
-export const VIDEO_FACE = { size: 0.32, depth: 0.14 };
+export const VIDEO_FACE = { size: 0.4, depth: HEAD.depth };
 
 /**
- * The hair is a flat cap. `overlap` is how far it sinks into the round head.
- * Long hair adds a slab (`back`) hanging behind the head.
+ * The hair is a flat cap that hugs the head and stands 1 cm out of it on the
+ * sides and over the forehead. It must not be level with the face: two faces
+ * in the same plane flicker over each other depending on the view.
+ * `overlap` is how far it sinks into the head. Long hair adds a slab (`back`)
+ * hanging behind the head.
  */
 export const HAIR = {
-  height: 0.09,
+  width: 0.42,
+  height: 0.1,
+  depth: 0.42,
   overlap: 0.03,
-  back: { width: 0.3, height: 0.36, depth: 0.06 },
+  /** How far the cap is pushed to the back of the head. */
+  backShift: 0.01,
+  back: { width: 0.42, height: 0.55, depth: 0.06, dy: -0.06 },
 };
 
-/** Where the slab of long hair sits behind the head (z grows toward the back). */
-export function hairBackZ(onScreen: boolean): number {
-  const headBack = onScreen ? VIDEO_FACE.depth / 2 : HEAD_RADIUS;
-  return headBack + HAIR.back.depth / 2 - 0.01;
+/**
+ * Where the slab of long hair sits behind the head (z grows toward the back):
+ * its back face is level with the back of the cap, so the two make one surface.
+ * The cap does not change with the camera, and neither does this.
+ */
+export function hairBackZ(): number {
+  return HAIR.backShift + HAIR.depth / 2 - HAIR.back.depth / 2;
 }
 
 /**
- * The height of the middle of the hair. On the round head it sinks in a little;
+ * The height of the middle of the hair. On the box head it sinks in a little;
  * on the camera screen it sits above it, so it never covers the picture.
  */
 export function hairCenter(onScreen: boolean): number {
   return onScreen
     ? HEAD_CENTER + VIDEO_FACE.size / 2 + HAIR.height / 2
-    : HEAD_CENTER + HEAD_RADIUS - HAIR.overlap;
+    : HEAD_CENTER + HEAD.height / 2 + HAIR.height / 2 - HAIR.overlap;
 }
 
 /**

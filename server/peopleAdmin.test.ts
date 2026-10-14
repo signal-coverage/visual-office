@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Actor } from "./actor.ts";
+import type { AuditInput } from "./auditStore.ts";
+import { MemoryBanStore } from "./banStore.ts";
 import { handlePeopleAdmin } from "./peopleAdmin.ts";
 import { MemoryUserStore } from "./userStore.ts";
 
@@ -189,5 +191,104 @@ describe("handlePeopleAdmin", () => {
       throw new Error("connection refused");
     };
     expect((await call(admin, "GET", "/admin/people"))?.status).toBe(503);
+  });
+});
+
+describe("handlePeopleAdmin audit", () => {
+  let users: MemoryUserStore;
+  let recorded: AuditInput[];
+  const boss = person({ admin: true });
+  const call = (body: unknown, actor: Actor = boss) =>
+    handlePeopleAdmin(
+      {
+        method: "POST",
+        path: "/admin/floors/office/heads",
+        body,
+        actor,
+      },
+      {
+        users,
+        knownFloors: ["office"],
+        audit: async (entry) => {
+          recorded.push(entry);
+        },
+      },
+    );
+
+  beforeEach(async () => {
+    users = new MemoryUserStore();
+    await users.upsert({ id: "user_beto", email: null, name: "Beto" });
+    recorded = [];
+  });
+
+  it("records who named a head, and who", async () => {
+    await call({ userId: "user_beto", head: true });
+    expect(recorded).toEqual([
+      {
+        actorUserId: "user_boss",
+        actorName: "Boss",
+        action: "head.assign",
+        targetUserId: "user_beto",
+        targetName: "Beto",
+        floor: "office",
+      },
+    ]);
+  });
+
+  it("records taking it away", async () => {
+    await users.addHead("office", "user_beto");
+    await call({ userId: "user_beto", head: false });
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        action: "head.remove",
+        targetUserId: "user_beto",
+        targetName: "Beto",
+        floor: "office",
+      }),
+    ]);
+  });
+
+  it("records only what changed: naming a head twice, or removing a non-head, is not news", async () => {
+    await call({ userId: "user_beto", head: false });
+    await call({ userId: "user_beto", head: true });
+    recorded.length = 0;
+    await call({ userId: "user_beto", head: true });
+    expect(recorded).toEqual([]);
+  });
+
+  it("records nothing when it refused", async () => {
+    await call({ userId: "user_nobody", head: true });
+    await call(
+      { userId: "user_beto", head: true },
+      person({ headOf: ["office"] }),
+    );
+    await call({ nonsense: true });
+    expect(recorded).toEqual([]);
+  });
+});
+
+describe("handlePeopleAdmin and bans", () => {
+  it("says until when each person is banned, when it knows about bans", async () => {
+    const users = new MemoryUserStore();
+    await users.upsert({ id: "user_ana", email: null, name: "Ana" });
+    await users.upsert({ id: "user_beto", email: null, name: "Beto" });
+    const bans = new MemoryBanStore();
+    await bans.ban("user_beto", 10, 1_000);
+    const reply = await handlePeopleAdmin(
+      {
+        method: "GET",
+        path: "/admin/people",
+        actor: person({ admin: true }),
+      },
+      { users, knownFloors: ["office"], bans, now: () => 2_000 },
+    );
+    const people = reply?.body.people as Array<{
+      id: string;
+      bannedUntil: number | null;
+    }>;
+    expect(people.map((p) => [p.id, p.bannedUntil])).toEqual([
+      ["user_ana", null],
+      ["user_beto", 1_000 + 10 * 60_000],
+    ]);
   });
 });

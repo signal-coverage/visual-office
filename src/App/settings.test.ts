@@ -9,25 +9,41 @@ import {
 
 describe("sanitizeSettings", () => {
   it("keeps valid settings as they are", () => {
-    expect(
-      sanitizeSettings({ mouseSensitivity: 1.5, showHints: false }),
-    ).toEqual({ mouseSensitivity: 1.5, showHints: false });
+    const settings = {
+      mouseSensitivity: 1.5,
+      showHints: false,
+      notificationSound: false,
+      desktopNotifications: true,
+      quality: "low" as const,
+    };
+    expect(sanitizeSettings(settings)).toEqual(settings);
   });
 
   it("falls back to the default for each setting that is missing or not valid", () => {
     expect(sanitizeSettings({})).toEqual(DEFAULT_SETTINGS);
     expect(
-      sanitizeSettings({ mouseSensitivity: "fast", showHints: "no" }),
+      sanitizeSettings({
+        mouseSensitivity: "fast",
+        showHints: "no",
+        notificationSound: "yes",
+        desktopNotifications: 1,
+        quality: "ultra",
+      }),
     ).toEqual(DEFAULT_SETTINGS);
     expect(
       sanitizeSettings({ mouseSensitivity: NaN, showHints: null }),
     ).toEqual(DEFAULT_SETTINGS);
   });
 
+  it("has the sound on and the desktop notifications off until somebody chooses", () => {
+    expect(DEFAULT_SETTINGS.notificationSound).toBe(true);
+    expect(DEFAULT_SETTINGS.desktopNotifications).toBe(false);
+  });
+
   it("keeps one setting when the other is wrong", () => {
     expect(sanitizeSettings({ mouseSensitivity: 2, showHints: 7 })).toEqual({
+      ...DEFAULT_SETTINGS,
       mouseSensitivity: 2,
-      showHints: DEFAULT_SETTINGS.showHints,
     });
   });
 
@@ -51,22 +67,42 @@ describe("sanitizeSettings", () => {
       expect(sanitizeSettings(raw)).toEqual(DEFAULT_SETTINGS);
   });
 
+  it("is automatic about quality until somebody chooses", () => {
+    expect(DEFAULT_SETTINGS.quality).toBe("auto");
+  });
+
+  it("keeps each quality choice and drops anything else", () => {
+    for (const quality of ["auto", "high", "low"] as const)
+      expect(sanitizeSettings({ quality }).quality).toBe(quality);
+    for (const quality of ["ULTRA", "", 1, null, undefined, {}])
+      expect(sanitizeSettings({ quality }).quality).toBe("auto");
+  });
+
   it("drops anything that is not a setting", () => {
     expect(
       Object.keys(
         sanitizeSettings({ ...DEFAULT_SETTINGS, admin: true }),
       ).sort(),
-    ).toEqual(["mouseSensitivity", "showHints"]);
+    ).toEqual([
+      "desktopNotifications",
+      "mouseSensitivity",
+      "notificationSound",
+      "quality",
+      "showHints",
+    ]);
   });
 });
 
 describe("settingsFromJson", () => {
   it("reads saved settings", () => {
-    expect(
-      settingsFromJson(
-        JSON.stringify({ mouseSensitivity: 0.8, showHints: false }),
-      ),
-    ).toEqual({ mouseSensitivity: 0.8, showHints: false });
+    const saved = {
+      mouseSensitivity: 0.8,
+      showHints: false,
+      notificationSound: false,
+      desktopNotifications: true,
+      quality: "low" as const,
+    };
+    expect(settingsFromJson(JSON.stringify(saved))).toEqual(saved);
   });
 
   it("is the default when nothing was saved, or what was saved is damaged", () => {

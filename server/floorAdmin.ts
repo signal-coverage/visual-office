@@ -1,11 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import { canEditFloor, identityOf, type Actor } from "./actor.ts";
+import { auditActor, type AuditRecorder } from "./audit.ts";
 import { LOCK_TTL_MS, type FloorLockStore } from "./floorLocks.ts";
 
 /** A call to the admin API, and who is making it (the server's own tools unless said otherwise). */
 export interface AdminRequest {
   method: string;
   path: string;
+  /** The query string, as `?limit=10` gives `{limit: "10"}`. */
+  query?: Record<string, string>;
   body?: unknown;
   actor?: Actor;
 }
@@ -53,6 +56,8 @@ export interface FloorAdminDeps {
    * out when the time is up. Returns how many were told.
    */
   closeFloor: (floor: string, graceSeconds: number) => number;
+  /** Where closing and opening a floor are noted: who did it. */
+  audit?: AuditRecorder;
 }
 
 const ROUTE = /^\/admin\/floors\/([^/]+)(?:\/(lock|heartbeat|unlock|access))?$/;
@@ -146,10 +151,16 @@ async function route(
         },
       };
     // Carrying on an editing session does not send everybody away a second time
-    const told =
-      before?.holder === holder
-        ? 0
-        : deps.closeFloor(floor, graceOf(request.body));
+    const continued = before?.holder === holder;
+    const graceSeconds = graceOf(request.body);
+    const told = continued ? 0 : deps.closeFloor(floor, graceSeconds);
+    if (!continued)
+      await deps.audit?.({
+        ...auditActor(actor),
+        action: "floor.lock",
+        floor,
+        detail: { graceSeconds, told },
+      });
     return {
       status: 200,
       body: {
@@ -169,12 +180,17 @@ async function route(
       : { status: 404, body: { error: "You no longer hold this floor." } };
   }
 
-  return (await deps.locks.release(floor, holder))
-    ? { status: 200, body: { released: true } }
-    : {
-        status: 404,
-        body: { released: false, error: "You do not hold this floor." },
-      };
+  if (!(await deps.locks.release(floor, holder)))
+    return {
+      status: 404,
+      body: { released: false, error: "You do not hold this floor." },
+    };
+  await deps.audit?.({
+    ...auditActor(actor),
+    action: "floor.unlock",
+    floor,
+  });
+  return { status: 200, body: { released: true } };
 }
 
 /** The admin API. When the database cannot be reached it says so (503) rather than guessing. */

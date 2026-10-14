@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { fetchPeople, setHead, withHead, type Person } from "./people";
+import {
+  fetchPeople,
+  moderatePerson,
+  setHead,
+  withHead,
+  type Person,
+} from "./people";
 
 const base = "https://office.example.com/admin";
 const ana: Person = {
@@ -108,5 +114,76 @@ describe("withHead", () => {
     const list = [ana];
     withHead(list, "user_ana", "sales", true);
     expect(list[0].headOf).toEqual([]);
+  });
+});
+
+describe("fetchPeople and bans", () => {
+  it("keeps until when somebody is banned, when the server says", async () => {
+    const banned = { ...ana, bannedUntil: 5_000 };
+    const { request } = api({
+      body: {
+        floors: ["office"],
+        people: [banned, { ...beto, bannedUntil: null }],
+      },
+    });
+    const list = await fetchPeople(request, base);
+    expect(list?.people.map((p) => p.bannedUntil)).toEqual([5_000, null]);
+  });
+
+  it("refuses a ban end that is not a time", async () => {
+    const { request } = api({
+      body: { floors: [], people: [{ ...ana, bannedUntil: "later" }] },
+    });
+    expect(await fetchPeople(request, base)).toBeNull();
+  });
+});
+
+describe("moderatePerson", () => {
+  it("asks the server to act, and says what it did", async () => {
+    const { request, calls } = api({
+      body: { ok: true, action: "ban", name: "Ana", minutes: 10 },
+    });
+    expect(await moderatePerson(request, base, "ban", "user_ana", 10)).toEqual({
+      ok: true,
+      text: "Ana was banned for 10 minutes.",
+    });
+    expect(calls[0].url).toBe(`${base}/moderation`);
+    expect(calls[0].init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      action: "ban",
+      userId: "user_ana",
+      minutes: 10,
+    });
+  });
+
+  it("sends no length for what is not a ban", async () => {
+    const { request, calls } = api({
+      body: { ok: true, action: "kick", name: "Ana" },
+    });
+    await moderatePerson(request, base, "kick", "user_ana");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      action: "kick",
+      userId: "user_ana",
+    });
+  });
+
+  it("gives the server's words when it refuses", async () => {
+    const { request } = api({
+      status: 409,
+      body: { error: "That person is not in the office.", reason: "not_here" },
+    });
+    expect(await moderatePerson(request, base, "kick", "user_ana")).toEqual({
+      ok: false,
+      text: "That person is not in the office.",
+    });
+  });
+
+  it("says it could not be done when the server does not answer", async () => {
+    expect(
+      await moderatePerson(api(new Error("down")).request, base, "mute", "x"),
+    ).toEqual({
+      ok: false,
+      text: "That could not be done right now. Try again in a moment.",
+    });
   });
 });

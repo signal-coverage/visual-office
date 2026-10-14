@@ -1,23 +1,36 @@
+import { cn } from "../../lib/cn";
+import { STATUS_LABELS } from "../../../shared/presence.ts";
+import { StatusDot } from "../StatusDot";
 import { YOU_SUFFIX } from "./consts";
 import * as styles from "./styles";
 import type { UserListProps } from "./types";
 
-export function UserList({ roster }: UserListProps) {
+export function UserList({ roster, className }: UserListProps) {
   if (!roster || roster.count === 0) return null;
 
   return (
-    <div style={styles.panel} aria-label="People here">
-      <div style={styles.title}>
+    <div className={cn(styles.panel, className)} aria-label="People here">
+      <div className={styles.title}>
         {roster.title} · {roster.count}
       </div>
-      <ul style={styles.list}>
+      <ul className={styles.list}>
         {roster.entries.map((entry) => (
-          <li key={entry.id} style={styles.row}>
-            <span style={styles.name(entry.color)}>
-              {entry.name}
-              {entry.you && YOU_SUFFIX}
+          <li key={entry.id} className={styles.row}>
+            <span className={styles.person}>
+              <StatusDot status={entry.status} />
+              <span
+                className={styles.nameClass}
+                style={styles.name(entry.color)}
+              >
+                {entry.name}
+                {entry.you && YOU_SUFFIX}
+              </span>
             </span>
-            {entry.place && <span style={styles.place}>{entry.place}</span>}
+            {(entry.place || entry.status !== "available") && (
+              <span className={styles.place}>
+                {entry.place ?? STATUS_LABELS[entry.status]}
+              </span>
+            )}
           </li>
         ))}
       </ul>

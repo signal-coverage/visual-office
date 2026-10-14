@@ -45,6 +45,18 @@ export default defineConfig({
           // `examples` (GLTFLoader) stays out: it is only needed once there are models to load
           groups: [
             { name: "three", test: /node_modules[\\/]three[\\/](?!examples)/ },
+            {
+              name: "react",
+              test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/,
+            },
+            {
+              name: "clerk",
+              test: /node_modules[\\/](@clerk|@tanstack)[\\/]/,
+            },
+            {
+              name: "colyseus",
+              test: /node_modules[\\/](@colyseus|msgpackr)[\\/]/,
+            },
           ],
         },
       },

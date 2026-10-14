@@ -1,4 +1,5 @@
 import { Button } from "@heroui/react";
+import { cn } from "../../lib/cn";
 import { METER_STEPS } from "../../game/micMeter";
 import { CAMERA_SUFFIX, VOICE_COLOR, VOICE_LABEL } from "./consts";
 import * as styles from "./styles";
@@ -11,18 +12,20 @@ export function VoiceIndicator({
   cameraOn,
   micSteps,
   onToggle,
+  className,
+  labels = VOICE_LABEL,
 }: VoiceIndicatorProps) {
   if (state === "unavailable") return null;
 
   return (
     <Button
       variant="ghost"
-      className={styles.button}
+      className={cn(styles.button, className)}
       onPress={onToggle}
       isDisabled={state === "connecting"}
     >
       <span className={styles.dot(VOICE_COLOR[state])} />
-      {VOICE_LABEL[state]}
+      {labels[state]}
       {cameraOn && CAMERA_SUFFIX}
       {state === "live" && (
         <span

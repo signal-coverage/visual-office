@@ -5,7 +5,7 @@ import {
   ToggleButtonGroup,
 } from "@heroui/react";
 import { ROWS } from "./consts";
-import { hex } from "./helpers";
+import { hex, indexOfColor } from "./helpers";
 import * as styles from "./styles";
 import type { AppearancePickerProps } from "./types";
 
@@ -23,14 +23,16 @@ export function AppearancePicker({ value, onChange }: AppearancePickerProps) {
               size="sm"
               value={hex(row.colors[value[row.field]])}
               onChange={(color) => {
-                const index = row.colors.findIndex(
-                  (candidate) => hex(candidate) === color.toString("hex"),
-                );
+                const index = indexOfColor(row.colors, color.toString("hex"));
                 if (index >= 0) onChange({ ...value, [row.field]: index });
               }}
             >
-              {row.colors.map((color) => (
-                <ColorSwatchPicker.Item key={color} color={hex(color)}>
+              {row.colors.map((color, index) => (
+                <ColorSwatchPicker.Item
+                  key={color}
+                  color={hex(color)}
+                  aria-label={`${row.label} ${index + 1}`}
+                >
                   <ColorSwatchPicker.Swatch />
                   <ColorSwatchPicker.Indicator />
                 </ColorSwatchPicker.Item>

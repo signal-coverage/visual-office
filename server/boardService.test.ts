@@ -4,8 +4,12 @@ import { BoardService, type BoardHost } from "./boardService.ts";
 
 const board = boardById("meeting")!;
 /** A spot in front of the whiteboard, inside the meeting room. */
-const NEAR = { x: board.center.x - 1.5, z: board.center.z };
-const FAR = { x: board.center.x - 6, z: board.center.z };
+const inFront = (meters: number) => ({
+  x: board.center.x + board.normal.x * meters,
+  z: board.center.z + board.normal.z * meters,
+});
+const NEAR = inFront(1.5);
+const FAR = inFront(6);
 
 interface Sent {
   to: string;

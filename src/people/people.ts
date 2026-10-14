@@ -1,3 +1,10 @@
+import {
+  moderationReplyText,
+  REFUSAL_TEXT,
+  type ModerationAction,
+  type ModerationReply,
+} from "../../shared/moderation.ts";
+
 /** Somebody who signed in, with what they may do. */
 export interface Person {
   id: string;
@@ -6,6 +13,8 @@ export interface Person {
   isAdmin: boolean;
   /** The floors they are head of. */
   headOf: string[];
+  /** Until when they are banned (milliseconds since 1970), or null; absent when the server does not say. */
+  bannedUntil?: number | null;
 }
 
 export interface PeopleList {
@@ -26,7 +35,10 @@ const isPerson = (value: unknown): value is Person => {
     (typeof person.email === "string" || person.email === null) &&
     typeof person.isAdmin === "boolean" &&
     Array.isArray(person.headOf) &&
-    person.headOf.every((floor) => typeof floor === "string")
+    person.headOf.every((floor) => typeof floor === "string") &&
+    (person.bannedUntil === undefined ||
+      person.bannedUntil === null ||
+      typeof person.bannedUntil === "number")
   );
 };
 
@@ -87,4 +99,36 @@ export function withHead(
     const others = person.headOf.filter((f) => f !== floor);
     return { ...person, headOf: (head ? [...others, floor] : others).sort() };
   });
+}
+
+/** What came of asking the server to moderate somebody: the words to show, whether it was done or not. */
+export async function moderatePerson(
+  request: Request,
+  adminBase: string,
+  action: ModerationAction,
+  userId: string,
+  minutes?: number,
+): Promise<{ ok: boolean; text: string }> {
+  try {
+    const response = await request(`${adminBase}/moderation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        userId,
+        ...(action === "ban" && minutes !== undefined ? { minutes } : {}),
+      }),
+    });
+    const body = (await response.json()) as
+      (Partial<ModerationReply> & { error?: unknown }) | null;
+    if (response.ok && body?.ok === true)
+      return { ok: true, text: moderationReplyText(body as ModerationReply) };
+    return {
+      ok: false,
+      text:
+        typeof body?.error === "string" ? body.error : REFUSAL_TEXT.unavailable,
+    };
+  } catch {
+    return { ok: false, text: REFUSAL_TEXT.unavailable };
+  }
 }

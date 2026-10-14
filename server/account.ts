@@ -1,18 +1,24 @@
 import type { Appearance } from "../shared/appearance.ts";
+import type { AuditRecorder } from "./audit.ts";
 import type { AdminReply } from "./floorAdmin.ts";
 import { knownUser, type AuthDeps } from "./authenticate.ts";
 import type { Company } from "./company.ts";
+import type { CompanySettings } from "./companySettings.ts";
 import type { UserRecord } from "./userStore.ts";
 
 /** What the account endpoints need on top of what letting people in needs. */
 export interface AccountDeps extends AuthDeps {
   /** Which organization is the company: the one the people of the company are in. */
   company: Company;
+  /** What the company's admins decided for everybody. */
+  settings: CompanySettings;
   /** Whether somebody is part of an organization, whatever it is. */
   isInOrganization: (
     userId: string,
     organizationId: string,
   ) => Promise<boolean>;
+  /** Where setting the company up is noted: who did it. */
+  audit?: AuditRecorder;
 }
 
 type Refused = "missing" | "invalid" | "unavailable";
@@ -26,6 +32,8 @@ export type SessionResult =
       organizationId: string;
       /** The look they chose last, or null if they never chose one. */
       appearance: Appearance | null;
+      /** Whether the company lets people choose their own name. */
+      canEditName: boolean;
     }
   /** Signed in, but not in the company: they need an invitation. */
   | { ok: true; state: "not_member" }
@@ -43,6 +51,19 @@ async function mayAdminister(
   if ((await deps.users.get(userId))?.isAdmin) return true;
   const { email } = await deps.profile(userId);
   return email !== null && deps.adminEmails.has(email.toLowerCase());
+}
+
+/** Whether people may choose their name. When that cannot be found out, they may not: the server decides at the door anyway. */
+async function canEditName(deps: AccountDeps): Promise<boolean> {
+  try {
+    return await deps.settings.allowNameEdit();
+  } catch (error) {
+    console.error(
+      "Could not read whether people may choose their name:",
+      error,
+    );
+    return false;
+  }
 }
 
 /**
@@ -97,6 +118,7 @@ export async function describeSession(
     user: known.user,
     organizationId,
     appearance: await deps.users.appearanceOf(known.user.id),
+    canEditName: await canEditName(deps),
   };
 }
 
@@ -141,7 +163,14 @@ export async function setUpCompany(
     // Of two admins doing this at once, only one is saved
     if (!(await deps.company.set(organizationId)))
       return { ok: false, reason: "already_set_up" };
-    await knownUser(userId, deps);
+    const known = await knownUser(userId, deps);
+    if (known.ok)
+      await deps.audit?.({
+        actorUserId: known.user.id,
+        actorName: known.user.name,
+        action: "company.setup",
+        detail: { organizationId },
+      });
     return { ok: true, organizationId };
   } catch (error) {
     console.error("Could not set the company up:", error);
@@ -208,6 +237,7 @@ export async function handleAccount(
             state: "member",
             organizationId: result.organizationId,
             appearance: result.appearance,
+            canEditName: result.canEditName,
             user: result.user,
           },
         };

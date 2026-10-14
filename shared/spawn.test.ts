@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PLAYER_RADIUS } from "./constants.ts";
+import { PLAYER_RADIUS, SPAWN } from "./constants.ts";
+import { zoneAt } from "./zones.ts";
 import { randomSpawn, SPAWN_AREA } from "./spawn.ts";
 
 describe("randomSpawn", () => {
@@ -23,10 +24,19 @@ describe("randomSpawn", () => {
     }
   });
 
-  it("keeps the player clear of the west wall and the first desk column", () => {
-    // west wall inner face at x = -10 + 0.15, first desk starts at x = -6.9
-    expect(SPAWN_AREA.minX - PLAYER_RADIUS).toBeGreaterThan(-9.85);
-    expect(SPAWN_AREA.maxX + PLAYER_RADIUS).toBeLessThan(-6.9);
+  it("is the open floor below the desks, as in the prototype, not a room with a private call", () => {
+    // The southern strip, in the middle: south of the last row of desks, north of the wall
+    expect(SPAWN_AREA.minZ).toBeGreaterThan(6.2);
+    expect(SPAWN_AREA.maxZ + PLAYER_RADIUS).toBeLessThan(9.85);
+    expect(SPAWN_AREA.minX).toBeLessThanOrEqual(0);
+    expect(SPAWN_AREA.maxX).toBeGreaterThanOrEqual(0);
+    expect(
+      zoneAt((SPAWN_AREA.minX + SPAWN_AREA.maxX) / 2, SPAWN_AREA.minZ, null),
+    ).toBeNull();
+  });
+
+  it("starts looking north, into the office", () => {
+    expect(SPAWN.yaw).toBe(0);
   });
 
   it("gives different players different positions", () => {

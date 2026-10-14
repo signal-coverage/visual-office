@@ -28,9 +28,9 @@ export const BOARDS: readonly Board[] = [
     id: "meeting",
     zone: "meeting",
     center: { x: WHITEBOARD.x, y: WHITEBOARD.y, z: WHITEBOARD.z },
-    // The board is on the east wall, facing west; seen from the room, +z is to the right
-    normal: { x: -1, y: 0, z: 0 },
-    right: { x: 0, y: 0, z: 1 },
+    // The board is on the west wall, facing east; seen from the room, -z is to the right
+    normal: { x: 1, y: 0, z: 0 },
+    right: { x: 0, y: 0, z: -1 },
     width: WHITEBOARD.width,
     height: WHITEBOARD.height,
   },

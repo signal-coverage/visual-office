@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { closeFloor, refreshFloor, registerRoom } from "./floors.ts";
+import {
+  closeFloor,
+  floorRooms,
+  refreshFloor,
+  registerModeratedRoom,
+  registerRoom,
+} from "./floors.ts";
 
 function fakeRoom() {
   const told: number[] = [];
@@ -74,5 +80,87 @@ describe("closeFloor", () => {
     expect(a.closed).toEqual([7]);
     forgetA();
     forgetB();
+  });
+});
+
+describe("floorRooms", () => {
+  function moderatedRoom(present: string[]) {
+    const removed: Array<[string, number, string]> = [];
+    const muted: Array<[string, boolean]> = [];
+    return {
+      removed,
+      muted,
+      room: {
+        removeUser: (userId: string, code: number, message: string) => {
+          removed.push([userId, code, message]);
+          return present.includes(userId) ? 1 : 0;
+        },
+        setVoiceMuted: async (userId: string, isMuted: boolean) => {
+          muted.push([userId, isMuted]);
+          return present.includes(userId) ? 1 : 0;
+        },
+      },
+    };
+  }
+
+  it("removes somebody from every room of the floor, and says how many sessions it was", () => {
+    const a = moderatedRoom(["user_ana"]);
+    const b = moderatedRoom(["user_ana"]);
+    const c = moderatedRoom([]);
+    const forgets = [a, b, c].map((r) =>
+      registerModeratedRoom("moderated-floor", r.room),
+    );
+    expect(
+      floorRooms.removeUser("moderated-floor", "user_ana", 4005, "bye"),
+    ).toBe(2);
+    expect(a.removed).toEqual([["user_ana", 4005, "bye"]]);
+    forgets.forEach((forget) => forget());
+  });
+
+  it("does not touch the rooms of other floors, nor rooms that are gone", () => {
+    const other = moderatedRoom(["user_ana"]);
+    const gone = moderatedRoom(["user_ana"]);
+    const forgetOther = registerModeratedRoom("other-moderated", other.room);
+    registerModeratedRoom("moderated-gone", gone.room)();
+    expect(floorRooms.removeUser("moderated-gone", "user_ana", 1, "x")).toBe(0);
+    expect(floorRooms.removeUser("nowhere", "user_ana", 1, "x")).toBe(0);
+    expect(other.removed).toEqual([]);
+    forgetOther();
+  });
+
+  it("mutes in every room of the floor", async () => {
+    const a = moderatedRoom(["user_ana"]);
+    const b = moderatedRoom([]);
+    const forgets = [a, b].map((r) =>
+      registerModeratedRoom("muted-floor", r.room),
+    );
+    expect(
+      await floorRooms.setVoiceMuted("muted-floor", "user_ana", true),
+    ).toBe(1);
+    expect(a.muted).toEqual([["user_ana", true]]);
+    expect(b.muted).toEqual([["user_ana", true]]);
+    forgets.forEach((forget) => forget());
+  });
+
+  it("goes on removing from the other rooms when one fails, but says the mute failed when a room could not do it", async () => {
+    const broken = {
+      removeUser: () => {
+        throw new Error("room is closing");
+      },
+      setVoiceMuted: async () => {
+        throw new Error("LiveKit is down");
+      },
+    };
+    const fine = moderatedRoom(["user_ana"]);
+    const forgets = [broken, fine.room].map((room) =>
+      registerModeratedRoom("broken-moderated", room),
+    );
+    expect(
+      floorRooms.removeUser("broken-moderated", "user_ana", 4005, "bye"),
+    ).toBe(1);
+    await expect(
+      floorRooms.setVoiceMuted("broken-moderated", "user_ana", true),
+    ).rejects.toThrow("LiveKit is down");
+    forgets.forEach((forget) => forget());
   });
 });

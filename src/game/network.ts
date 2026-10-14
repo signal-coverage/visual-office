@@ -1,6 +1,15 @@
 import { Callbacks, Client, type Room } from "@colyseus/sdk";
 import type { Appearance } from "../../shared/appearance.ts";
-import type { ChatMessage } from "../../shared/chat.ts";
+import type { Emote, EmoteMessage } from "../../shared/emotes.ts";
+import { asStatus, type Status } from "../../shared/presence.ts";
+import type { ChatMessage, ChatRefusal, ChatScope } from "../../shared/chat.ts";
+import type { KnockAck, KnockMessage } from "../../shared/knock.ts";
+import type {
+  ModerationAction,
+  ModerationReply,
+  ModeratorMessage,
+  VoiceMutedMessage,
+} from "../../shared/moderation.ts";
 import type { ClosingMessage, LayoutMessage } from "../../shared/floors.ts";
 import { ROOM_NAME } from "../../shared/constants.ts";
 import type { Point, Stroke, StrokeMessage } from "../../shared/drawing.ts";
@@ -29,7 +38,14 @@ export interface NetworkHandlers {
   onPlayerRemoved: (sessionId: string) => void;
   /** Somebody joined, left or changed zone: everybody who is in the session now. */
   onPlayers: (players: RosterEntry[], selfId: string) => void;
-  onChat: (message: ChatMessage) => void;
+  /** A chat message for us, and whether we sent it (it comes back to us too). */
+  onChat: (message: ChatMessage, mine: boolean) => void;
+  /** The server did not deliver what we sent. */
+  onChatRefused: (reason: ChatRefusal) => void;
+  /** Somebody is knocking on us, or on the private room we are in. */
+  onKnock: (message: KnockMessage) => void;
+  /** What came of our own knock. */
+  onKnocked: (ack: KnockAck) => void;
   onVoice: (credentials: VoiceCredentials) => void;
   /** Somebody in our zone drew a piece of a stroke on a board. */
   onDraw: (stroke: {
@@ -50,22 +66,46 @@ export interface NetworkHandlers {
   onDisconnected: (code: number) => void;
   /** Somebody else changed how they look. */
   onLook: (sessionId: string, player: Player) => void;
+  /** Somebody else (not us) is doing something else now. */
+  onStatus: (sessionId: string, status: Status) => void;
+  /** Somebody made a gesture. */
+  onEmote: (message: EmoteMessage) => void;
   /** What stands in the floor, sent as soon as we join. */
   onLayout: (layout: LayoutMessage) => void;
   /** The floor is about to close for editing: this many seconds left. */
   onClosing: (seconds: number) => void;
   /** The editor finished before the time was up: the floor stays open. */
   onReopened: () => void;
+  /** Whether we may moderate this floor, as the server says when we join. */
+  onModerator: (can: boolean) => void;
+  /** What came of something we asked as a moderator. */
+  onModerated: (reply: ModerationReply) => void;
+  /** A moderator muted our voice, or let us speak again. */
+  onVoiceMuted: (muted: boolean) => void;
 }
 
 export interface Connection {
   sessionId: string;
   sendMove: (move: Move) => void;
-  sendChat: (text: string) => void;
+  /** Sends a message; for a direct one, `to` is the session of the person. The server decides who gets it. */
+  sendChat: (text: string, scope: ChatScope, to?: string) => void;
+  /** Knocks: on the private room we stand at, or on the person we face. */
+  sendKnock: () => void;
   /** Tells the room how we look now. The server checks it and everybody sees it. */
   sendAppearance: (look: Appearance) => void;
+  /** Tells the room what we choose to show as doing. The server checks it and everybody sees it. */
+  sendStatus: (status: Status) => void;
+  /** Tells the room that we stopped touching anything (true) or are back (false). */
+  sendIdle: (idle: boolean) => void;
+  sendEmote: (emote: Emote) => void;
   sendDraw: (stroke: StrokeMessage) => void;
   sendClearBoard: (board: string) => void;
+  /** Asks the server, as a moderator, to do something to somebody in the room (a session id). It checks who we are. */
+  sendModerate: (
+    action: ModerationAction,
+    target: string,
+    minutes?: number,
+  ) => void;
   leave: () => void;
 }
 
@@ -91,6 +131,7 @@ export async function connect(
         name: player.name,
         zone: player.zone || null,
         color: player.chatColor,
+        status: asStatus(player.status),
       }),
     );
     handlers.onPlayers(players, room.sessionId);
@@ -101,6 +142,11 @@ export async function connect(
     if (sessionId === room.sessionId) handlers.onSelf(player);
     else handlers.onPlayerAdded(sessionId, player);
     callbacks.listen(player, "zone", publishPlayers);
+    callbacks.listen(player, "status", () => {
+      if (sessionId !== room.sessionId)
+        handlers.onStatus(sessionId, asStatus(player.status));
+      publishPlayers();
+    });
     // Their look is drawn again when it changes (not our own: we do not see ourselves)
     if (sessionId !== room.sessionId)
       for (const field of LOOK_FIELDS)
@@ -116,7 +162,15 @@ export async function connect(
     handlers.onPlayerRemoved(sessionId);
     publishPlayers();
   });
-  room.onMessage("chat", (message: ChatMessage) => handlers.onChat(message));
+  room.onMessage("emote", (message: EmoteMessage) => handlers.onEmote(message));
+  room.onMessage("chat", (message: ChatMessage) =>
+    handlers.onChat(message, message.id === room.sessionId),
+  );
+  room.onMessage("chatRefused", ({ reason }: { reason: ChatRefusal }) =>
+    handlers.onChatRefused(reason),
+  );
+  room.onMessage("knock", (message: KnockMessage) => handlers.onKnock(message));
+  room.onMessage("knocked", (ack: KnockAck) => handlers.onKnocked(ack));
   room.onMessage("voice", (credentials: VoiceCredentials) =>
     handlers.onVoice(credentials),
   );
@@ -136,6 +190,15 @@ export async function connect(
     handlers.onClosing(seconds),
   );
   room.onMessage("reopened", () => handlers.onReopened());
+  room.onMessage("moderator", ({ can }: ModeratorMessage) =>
+    handlers.onModerator(can === true),
+  );
+  room.onMessage("moderated", (reply: ModerationReply) =>
+    handlers.onModerated(reply),
+  );
+  room.onMessage("voiceMuted", ({ muted }: VoiceMutedMessage) =>
+    handlers.onVoiceMuted(muted === true),
+  );
   room.onMessage("layout", (layout: LayoutMessage) =>
     handlers.onLayout(layout),
   );
@@ -144,10 +207,21 @@ export async function connect(
   return {
     sessionId: room.sessionId,
     sendMove: (move) => room.send("move", move),
-    sendChat: (text) => room.send("chat", { text }),
+    sendChat: (text, scope, to) =>
+      room.send("chat", { text, scope, ...(to ? { to } : {}) }),
+    sendKnock: () => room.send("knock", {}),
     sendAppearance: (look) => room.send("appearance", look),
+    sendStatus: (status) => room.send("status", { status }),
+    sendIdle: (idle) => room.send("idle", { idle }),
+    sendEmote: (emote) => room.send("emote", { emote }),
     sendDraw: (stroke) => room.send("draw", stroke),
     sendClearBoard: (board) => room.send("clearBoard", { board }),
+    sendModerate: (action, target, minutes) =>
+      room.send("moderate", {
+        action,
+        target,
+        ...(minutes === undefined ? {} : { minutes }),
+      }),
     leave: () => void room.leave(),
   };
 }

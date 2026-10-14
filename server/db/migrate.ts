@@ -87,6 +87,23 @@ export const MIGRATIONS: ReadonlyArray<{ id: string; sql: string }> = [
     id: "007_user_appearance",
     sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS appearance jsonb`,
   },
+  {
+    // Who did what: only ever added to. Names are copied in, so an entry still reads
+    // right after somebody changes their name or is gone
+    id: "008_audit_log",
+    sql: `
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        at             bigint NOT NULL,
+        actor_user_id  text,
+        actor_name     text   NOT NULL,
+        action         text   NOT NULL,
+        target_user_id text,
+        target_name    text,
+        floor          text,
+        detail         jsonb  NOT NULL DEFAULT '{}'::jsonb
+      )`,
+  },
 ];
 
 /** Brings the database up to date, running only the steps it has not had yet. */

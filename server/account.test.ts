@@ -5,7 +5,9 @@ import {
   setUpCompany,
   type AccountDeps,
 } from "./account.ts";
+import type { AuditInput } from "./auditStore.ts";
 import { createCompany } from "./company.ts";
+import { createCompanySettings } from "./companySettings.ts";
 import { MemorySettingsStore } from "./settingsStore.ts";
 import { MemoryUserStore } from "./userStore.ts";
 
@@ -32,6 +34,7 @@ describe("account", () => {
       return org !== null && (members[org] ?? []).includes(userId);
     },
     company,
+    settings: createCompanySettings(settings),
     users,
     adminEmails: new Set(["boss@acme.com"]),
     now: () => 1_000,
@@ -58,12 +61,34 @@ describe("account", () => {
         state: "member",
         organizationId: "org_acme",
         appearance: null,
+        canEditName: false,
         user: {
           id: "ana",
           name: "Ana",
           email: "ana@acme.com",
           isAdmin: false,
         },
+      });
+    });
+
+    it("says whether the company lets people choose their name", async () => {
+      await createCompanySettings(settings).setAllowNameEdit(true);
+      expect(await describeSession("tok-ana", deps)).toMatchObject({
+        state: "member",
+        canEditName: true,
+      });
+    });
+
+    it("keeps the name locked when the setting cannot be read", async () => {
+      deps.settings = {
+        allowNameEdit: async () => {
+          throw new Error("down");
+        },
+        setAllowNameEdit: async () => {},
+      };
+      expect(await describeSession("tok-ana", deps)).toMatchObject({
+        state: "member",
+        canEditName: false,
       });
     });
 
@@ -169,6 +194,33 @@ describe("account", () => {
       });
     });
 
+    it("records who set the company up", async () => {
+      const recorded: AuditInput[] = [];
+      deps.audit = async (entry) => {
+        recorded.push(entry);
+      };
+      await setUpCompany("tok-boss", "org_new", deps);
+      expect(recorded).toEqual([
+        {
+          actorUserId: "boss",
+          actorName: "The Boss",
+          action: "company.setup",
+          detail: { organizationId: "org_new" },
+        },
+      ]);
+    });
+
+    it("records nothing when it was refused", async () => {
+      const recorded: AuditInput[] = [];
+      deps.audit = async (entry) => {
+        recorded.push(entry);
+      };
+      members.org_new = ["ana"];
+      await setUpCompany("tok-ana", "org_new", deps);
+      await setUpCompany("tok-boss", "org_other", deps);
+      expect(recorded).toEqual([]);
+    });
+
     it("refuses somebody who is not an admin, and sets nothing", async () => {
       members.org_new = ["ana"];
       expect(await setUpCompany("tok-ana", "org_new", deps)).toEqual({
@@ -247,6 +299,7 @@ describe("account", () => {
         state: "member",
         organizationId: "org_acme",
         appearance: null,
+        canEditName: false,
         user: { id: "ana", name: "Ana", email: "ana@acme.com", isAdmin: false },
       });
     });

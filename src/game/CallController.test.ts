@@ -21,6 +21,8 @@ const fakes = vi.hoisted(() => {
     screenRequests: boolean[];
     /** Makes the next request to share fail with this error. */
     screenError: Error | null;
+    /** Makes the next request to share wait until this resolves, like the browser's picker does. */
+    screenHold: Promise<void> | null;
     volumes: Map<string, number>;
     videoWanted: Map<string, boolean>;
     level: number;
@@ -38,6 +40,7 @@ vi.mock("./VoiceChat", () => ({
       cameraRequests: [] as boolean[],
       screenRequests: [] as boolean[],
       screenError: null,
+      screenHold: null,
       volumes: new Map<string, number>(),
       videoWanted: new Map<string, boolean>(),
       level: 0,
@@ -49,6 +52,7 @@ vi.mock("./VoiceChat", () => ({
     }
     async setScreenShareEnabled(on: boolean) {
       this.state.screenRequests.push(on);
+      if (this.state.screenHold) await this.state.screenHold;
       if (this.state.screenError) throw this.state.screenError;
     }
     async join(credentials: VoiceCredentials, options: { mic: boolean }) {
@@ -329,6 +333,39 @@ describe("CallController, sharing the screen", () => {
     expect(states.at(-1)).toBe("muted");
   });
 
+  it("is choosing a screen while the browser asks what to share, and not before or after", async () => {
+    const { call } = setup();
+    call.setCredentials(meeting);
+    call.toggleMic();
+    await flush();
+    expect(call.choosingScreen).toBe(false);
+
+    let choose!: () => void;
+    fakes.chats[0].screenHold = new Promise<void>((resolve) => {
+      choose = resolve;
+    });
+    call.toggleScreenShare();
+    await flush();
+    expect(call.choosingScreen).toBe(true);
+
+    choose();
+    await flush();
+    expect(call.choosingScreen).toBe(false);
+  });
+
+  it("is no longer choosing a screen when the player closes the picker without choosing", async () => {
+    const { call } = setup();
+    call.setCredentials(meeting);
+    call.toggleMic();
+    await flush();
+    fakes.chats[0].screenError = Object.assign(new Error("closed"), {
+      name: "NotAllowedError",
+    });
+    call.toggleScreenShare();
+    await flush();
+    expect(call.choosingScreen).toBe(false);
+  });
+
   it("starts and stops sharing from a call it is already in", async () => {
     const { call } = setup();
     call.setCredentials(meeting);
@@ -587,5 +624,104 @@ describe("CallController, who is heard", () => {
     tune(call, 12);
     expect(fakes.chats[0].volumes.has("other")).toBe(false); // old call: no longer tuned
     expect(fakes.chats[1].volumes.get("other")).toBe(1);
+  });
+});
+
+describe("CallController, muted by a moderator", () => {
+  it("silences a live microphone at once", async () => {
+    const { call, states } = setup();
+    call.setCredentials(open);
+    call.toggleMic();
+    await flush();
+    expect(states.at(-1)).toBe("live");
+
+    call.setMutedByModerator(true);
+    expect(states.at(-1)).toBe("muted");
+  });
+
+  it("does not let the player turn it back on, and says why", async () => {
+    const { call, states, notices } = setup();
+    call.setCredentials(open);
+    call.toggleMic();
+    await flush();
+    call.setMutedByModerator(true);
+
+    call.toggleMic();
+    await flush();
+    expect(states.at(-1)).toBe("muted");
+    expect(notices.at(-1)).toBe("A moderator muted your microphone.");
+  });
+
+  it("joins without the microphone while muted, and says why", async () => {
+    const { call, states, notices } = setup();
+    call.setCredentials(open);
+    call.setMutedByModerator(true);
+
+    call.toggleMic();
+    await flush();
+    expect(fakes.chats).toHaveLength(1);
+    expect(fakes.chats[0].options).toEqual({ mic: false });
+    expect(states.at(-1)).toBe("muted");
+    expect(notices.at(-1)).toBe("A moderator muted your microphone.");
+  });
+
+  it("keeps the microphone off when the call moves to another room", async () => {
+    const { call, states } = setup();
+    call.setCredentials(open);
+    call.toggleMic();
+    await flush();
+    call.setMutedByModerator(true);
+
+    call.setCredentials(meeting);
+    await flush();
+    expect(fakes.chats[1].options).toEqual({ mic: false });
+    expect(states.at(-1)).toBe("muted");
+  });
+
+  it("lets the player speak again once a moderator allows it", async () => {
+    const { call, states } = setup();
+    call.setCredentials(open);
+    call.toggleMic();
+    await flush();
+    call.setMutedByModerator(true);
+    call.setMutedByModerator(false);
+
+    call.toggleMic();
+    await flush();
+    expect(states.at(-1)).toBe("live");
+  });
+});
+
+describe("CallController, audio only (the lite screen)", () => {
+  const audioOnly = () =>
+    new CallController(
+      {
+        onState: () => {},
+        onMicLevel: () => {},
+        onCamera: () => {},
+        onRemoteVideo: () => {},
+        onScreen: () => {},
+        onNotice: () => {},
+      },
+      { receiveVideo: false },
+    );
+
+  it("never asks for anybody's video, however close they are", async () => {
+    const call = audioOnly();
+    call.setCredentials(open);
+    call.toggleMic();
+    await flush();
+    call.update(1, { x: 0, z: 0 }, (callback) => callback("other", 1, 0));
+    expect(fakes.chats[0].videoWanted.get("other")).toBe(false);
+    expect(fakes.chats[0].volumes.get("other")).toBe(1);
+  });
+
+  it("still asks for it by default", async () => {
+    const { call } = setup();
+    call.setCredentials(open);
+    call.toggleMic();
+    await flush();
+    tune(call, 1);
+    expect(fakes.chats[0].videoWanted.get("other")).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Actor } from "./actor.ts";
+import type { AuditInput } from "./auditStore.ts";
 import { handleLayoutAdmin, MAX_LAYOUT_BODY_BYTES } from "./layoutAdmin.ts";
 import { FloorLocks } from "./floorLocks.ts";
 import { MemoryLayoutStore } from "./layoutStore.ts";
@@ -538,5 +539,85 @@ describe("handleLayoutAdmin, for a person who signed in", () => {
       "/admin/floors/office/layout/versions/1",
     ])
       expect((await call(member, "GET", path))?.status, path).toBe(200);
+  });
+});
+
+describe("handleLayoutAdmin audit", () => {
+  const ana: Actor = {
+    kind: "user",
+    user: { id: "user_ana", email: null, name: "Ana", isAdmin: false },
+    roles: { admin: false, headOf: ["office"] },
+  };
+  let layouts: MemoryLayoutStore;
+  let locks: FloorLocks;
+  let recorded: AuditInput[];
+  const call = (method: string, path: string, body?: unknown) =>
+    handleLayoutAdmin(
+      { method, path, body, actor: ana },
+      {
+        layouts,
+        locks,
+        knownFloors: ["office"],
+        audit: async (entry) => {
+          recorded.push(entry);
+        },
+      },
+    );
+
+  beforeEach(async () => {
+    layouts = new MemoryLayoutStore();
+    locks = new FloorLocks();
+    recorded = [];
+    await locks.acquire("office", "user_ana");
+  });
+
+  it("records who published, and which version", async () => {
+    await call("POST", "/admin/floors/office/layout", {
+      furniture: [desk],
+      models: [],
+    });
+    expect(recorded).toEqual([
+      {
+        actorUserId: "user_ana",
+        actorName: "Ana",
+        action: "layout.publish",
+        floor: "office",
+        detail: { version: 1, dropped: 0, problems: 0 },
+      },
+    ]);
+  });
+
+  it("records going back, with the version it went back to", async () => {
+    await layouts.publish("office", { furniture: [desk], models: [] }, "x");
+    await call("POST", "/admin/floors/office/layout/revert", { version: 1 });
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        action: "layout.revert",
+        floor: "office",
+        detail: { version: 2, revertedTo: 1 },
+      }),
+    ]);
+  });
+
+  it("records vouching for a version", async () => {
+    await layouts.publish("office", { furniture: [desk], models: [] }, "x");
+    await call("POST", "/admin/floors/office/layout/versions/1/good", {});
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        action: "layout.mark",
+        floor: "office",
+        detail: { version: 1 },
+      }),
+    ]);
+  });
+
+  it("records nothing when nothing was stored", async () => {
+    await call("POST", "/admin/floors/office/layout", {
+      furniture: "no",
+      models: [],
+    });
+    await call("POST", "/admin/floors/office/layout/revert", { version: 9 });
+    await call("POST", "/admin/floors/office/layout/versions/9/good", {});
+    expect(recorded).toEqual([]);
   });
 });

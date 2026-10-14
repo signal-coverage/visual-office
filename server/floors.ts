@@ -1,6 +1,7 @@
 import { FLOOR_ID } from "../shared/floors.ts";
 import { FloorLocks, type FloorLockStore } from "./floorLocks.ts";
 import { MemoryLayoutStore, type LayoutStore } from "./layoutStore.ts";
+import type { ModerationRooms } from "./moderationService.ts";
 
 let store: FloorLockStore = new FloorLocks();
 
@@ -77,3 +78,50 @@ export function closeFloor(floor: string, graceSeconds: number): number {
     told += room.closeForEditing(graceSeconds);
   return told;
 }
+
+/** What a game room offers so a moderator's action can reach the people in it. */
+export interface ModeratedRoom {
+  /** Disconnects every session of this person in the room. Returns how many there were. */
+  removeUser: (userId: string, code: number, message: string) => number;
+  /** Takes this person's microphone away (or gives it back). Returns how many sessions of theirs there were. */
+  setVoiceMuted: (userId: string, muted: boolean) => Promise<number>;
+}
+
+const moderatedRooms = new Map<string, Set<ModeratedRoom>>();
+
+/** A game room says which floor it is, for moderation. Returns how to undo it when the room is gone. */
+export function registerModeratedRoom(
+  floor: string,
+  room: ModeratedRoom,
+): () => void {
+  const set = moderatedRooms.get(floor) ?? new Set();
+  set.add(room);
+  moderatedRooms.set(floor, set);
+  return () => {
+    set.delete(room);
+  };
+}
+
+/** Moderation, applied to every room of a floor. */
+export const floorRooms: ModerationRooms = {
+  removeUser: (floor, userId, code, message) => {
+    let removed = 0;
+    for (const room of moderatedRooms.get(floor) ?? []) {
+      try {
+        removed += room.removeUser(userId, code, message);
+      } catch (error) {
+        // One room failing must not leave the person in the others
+        console.error("A room could not remove somebody:", error);
+      }
+    }
+    return removed;
+  },
+  setVoiceMuted: async (floor, userId, muted) => {
+    const counts = await Promise.all(
+      [...(moderatedRooms.get(floor) ?? [])].map((room) =>
+        room.setVoiceMuted(userId, muted),
+      ),
+    );
+    return counts.reduce((total, count) => total + count, 0);
+  },
+};

@@ -19,5 +19,11 @@ export interface LobbyScreenProps {
   onManagePeople?: () => void;
   /** Opens the screen to invite people to the company: only offered to admins. */
   onInvitePeople?: () => void;
+  /** Opens the company's settings: only offered to admins. */
+  onOpenSettings?: () => void;
+  /** Opens the activity log: only offered to admins. */
+  onOpenActivity?: () => void;
+  /** Opens where the calendars of the rooms are set: only offered to admins. */
+  onOpenCalendars?: () => void;
   onJoin: (name: string, appearance: Appearance) => void;
 }

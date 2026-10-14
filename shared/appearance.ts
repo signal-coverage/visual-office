@@ -2,27 +2,28 @@
  * How a player looks. Each part is an index into a fixed palette instead of a
  * free colour or model, so what a client can send is a handful of small
  * numbers the server can check exactly, and adding an option is one line here.
+ * The colours are the prototype's. A look saved when the palettes were longer
+ * may point past their end: such a part is replaced, never trusted
+ * (see sanitizeAppearance and parseAppearance).
  */
 
 export const SKIN_TONES = [
-  0xffe0bd, 0xf1c6a0, 0xd9a06f, 0xb97d4f, 0x8a5a38, 0x5c3a24,
+  0xf6d7b8, 0xe8b98f, 0xc98c5d, 0x9a6440, 0x6b4128,
 ] as const;
 
 export const HAIR_COLORS = [
-  0x111111, 0x2b1d14, 0x6b4a2b, 0xc9a45c, 0xb5482a, 0xd9d4c7, 0x3b5bdb,
-  0xd6409f,
+  0x2b1d14, 0x5a3a22, 0xa8743a, 0xe0c27a, 0xb8452e, 0x8c8c8c,
 ] as const;
 
 export const HAIR_STYLES = ["short", "long", "none"] as const;
 export type HairStyle = (typeof HAIR_STYLES)[number];
 
 export const SHIRT_COLORS = [
-  0xe5484d, 0xf08c3a, 0xf5c542, 0x46b06a, 0x2eb5a6, 0x3b82f6, 0x5b5bd6,
-  0x9b5de5, 0xe668a7, 0xeeeeee,
+  0xd9643a, 0x3f7d5c, 0x3a5f8f, 0xe8c547, 0xf2efe8, 0x7a3e5c,
 ] as const;
 
 export const PANTS_COLORS = [
-  0x2b3140, 0x4a4e57, 0x6b5a45, 0x1d3a6b, 0x3a4a35, 0x111111,
+  0x2f3640, 0x4a4f6b, 0x7a6a55, 0x1f2a24, 0xa3a8ad,
 ] as const;
 
 export interface Appearance {

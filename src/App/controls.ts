@@ -8,6 +8,9 @@ export const CONTROLS: ReadonlyArray<readonly [keys: string, action: string]> =
     ["M", "Join voice / mute"],
     ["C", "Camera on / off"],
     ["P", "Share your screen (meeting room)"],
+    ["K", "Knock on a private room's door, or on who you face"],
+    ["Z", "Change your status"],
+    ["E + 1 to 5", "Gesture (hold E)"],
     ["Tab", "People list"],
     ["Esc", "Menu"],
   ];

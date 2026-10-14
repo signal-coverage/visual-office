@@ -49,6 +49,54 @@ describe("the palettes", () => {
   });
 });
 
+describe("the prototype's colours", () => {
+  it("uses exactly its skin, hair, shirt and pants colours, in its order", () => {
+    expect([...SKIN_TONES]).toEqual([
+      0xf6d7b8, 0xe8b98f, 0xc98c5d, 0x9a6440, 0x6b4128,
+    ]);
+    expect([...HAIR_COLORS]).toEqual([
+      0x2b1d14, 0x5a3a22, 0xa8743a, 0xe0c27a, 0xb8452e, 0x8c8c8c,
+    ]);
+    expect([...SHIRT_COLORS]).toEqual([
+      0xd9643a, 0x3f7d5c, 0x3a5f8f, 0xe8c547, 0xf2efe8, 0x7a3e5c,
+    ]);
+    expect([...PANTS_COLORS]).toEqual([
+      0x2f3640, 0x4a4f6b, 0x7a6a55, 0x1f2a24, 0xa3a8ad,
+    ]);
+  });
+
+  it("keeps the same hair styles, in the same order", () => {
+    expect([...HAIR_STYLES]).toEqual(["short", "long", "none"]);
+  });
+});
+
+describe("a look saved with the old, longer palettes", () => {
+  // The old palettes had 6 skins, 8 hair colours, 10 shirts and 6 pants
+  const old = { skin: 5, hairColor: 7, hairStyle: 2, shirt: 9, pants: 5 };
+  const fallback = defaultAppearance("Ana");
+
+  it("keeps the parts that still exist and replaces the rest, never going past a palette", () => {
+    const result = sanitizeAppearance(old, fallback);
+    expect(result.hairStyle).toBe(old.hairStyle);
+    expect(result.skin).toBe(fallback.skin);
+    expect(result.hairColor).toBe(fallback.hairColor);
+    expect(result.shirt).toBe(fallback.shirt);
+    expect(result.pants).toBe(fallback.pants);
+    expect(result.hairColor).toBeLessThan(HAIR_COLORS.length);
+    expect(result.shirt).toBeLessThan(SHIRT_COLORS.length);
+  });
+
+  it("is not a chosen look when read back from storage, so the name's default is used", () => {
+    expect(parseAppearance(old)).toBeNull();
+  });
+
+  it("is read as the fallback when it came as JSON", () => {
+    expect(
+      appearanceFromJson(JSON.stringify({ ...old, skin: 99 }), fallback),
+    ).toEqual({ ...fallback, hairStyle: old.hairStyle });
+  });
+});
+
 describe("sanitizeAppearance", () => {
   const fallback = defaultAppearance("Ana");
 

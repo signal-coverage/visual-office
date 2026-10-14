@@ -1,23 +1,50 @@
-import { Button, Checkbox, Chip, Table } from "@heroui/react";
+import {
+  Button,
+  Checkbox,
+  Chip,
+  Label,
+  NumberField,
+  Table,
+} from "@heroui/react";
 import { useEffect, useState } from "react";
 import { FLOOR_ID } from "../../../shared/floors.ts";
+import {
+  banMinutes,
+  DEFAULT_BAN_MINUTES,
+  MAX_BAN_MINUTES,
+  MIN_BAN_MINUTES,
+  type ModerationAction,
+} from "../../../shared/moderation.ts";
 import { gameBackend, httpUrlOf } from "../../editor/backend";
 import { currentServerUrl } from "../../game/serverAddress";
 import {
   fetchPeople,
+  moderatePerson,
   setHead,
   withHead,
   type PeopleList,
 } from "../../people/people";
+import { confirmQuestion, needsConfirmation } from "../ModerationPanel/helpers";
 import {
   ADMIN_BADGE,
+  BAN_LABEL,
+  BAN_LENGTH_LABEL,
+  bannedUntilText,
+  CANCEL_LABEL,
   CLOSE_LABEL,
+  CONFIRM_LABEL,
   EMPTY,
   INTRO,
+  KICK_LABEL,
   LOAD_ERROR,
   LOADING,
+  MODERATION_COLUMN,
+  MODERATION_INTRO,
+  MUTE_LABEL,
   SAVE_ERROR,
   TITLE,
+  UNBAN_LABEL,
+  UNMUTE_LABEL,
 } from "./consts";
 import * as styles from "./styles";
 import type { PeopleAdminProps } from "./types";
@@ -40,6 +67,15 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
   const [list, setList] = useState<PeopleList | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [minutes, setMinutes] = useState(DEFAULT_BAN_MINUTES);
+  const [pending, setPending] = useState<{
+    id: string;
+    action: ModerationAction;
+  } | null>(null);
+  /** What the last moderation action came to: shown until the next one. */
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     void fetchPeople(request, adminBase).then((found) => {
@@ -63,6 +99,29 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
     }
   };
 
+  const moderate = async (action: ModerationAction, userId: string) => {
+    setPending(null);
+    setResult(
+      await moderatePerson(
+        request,
+        adminBase,
+        action,
+        userId,
+        action === "ban" ? banMinutes(minutes) : undefined,
+      ),
+    );
+    // A ban or a lifted ban changes what the list says about them
+    if (action === "ban" || action === "unban")
+      void fetchPeople(request, adminBase).then(
+        (found) => found && setList(found),
+      );
+  };
+
+  const ask = (action: ModerationAction, userId: string) => {
+    if (needsConfirmation(action)) setPending({ id: userId, action });
+    else void moderate(action, userId);
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.toolbar}>
@@ -84,6 +143,30 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
             {problem}
           </p>
         )}
+        {result && (
+          <p className={styles.notice(!result.ok)} role="status">
+            {result.text}
+          </p>
+        )}
+        {list && list.people.length > 0 && (
+          <>
+            <p className={styles.intro}>{MODERATION_INTRO}</p>
+            <NumberField
+              className={styles.banLength}
+              value={minutes}
+              minValue={MIN_BAN_MINUTES}
+              maxValue={MAX_BAN_MINUTES}
+              onChange={(next) => {
+                if (Number.isFinite(next)) setMinutes(next);
+              }}
+            >
+              <Label>{BAN_LENGTH_LABEL}</Label>
+              <NumberField.Group>
+                <NumberField.Input />
+              </NumberField.Group>
+            </NumberField>
+          </>
+        )}
         {list && list.people.length === 0 && (
           <p className={styles.notice(false)}>{EMPTY}</p>
         )}
@@ -100,6 +183,9 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
                       Head of {floor}
                     </Table.Column>
                   ))}
+                  <Table.Column id="moderation">
+                    {MODERATION_COLUMN}
+                  </Table.Column>
                 </Table.Header>
                 <Table.Body>
                   {list.people.map((person) => (
@@ -136,6 +222,81 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
                           </Checkbox>
                         </Table.Cell>
                       ))}
+                      <Table.Cell>
+                        {person.isAdmin ? null : pending?.id === person.id ? (
+                          <div className={styles.moderation}>
+                            <p className={styles.question}>
+                              {confirmQuestion(
+                                pending.action,
+                                person.name,
+                                banMinutes(minutes),
+                              )}
+                            </p>
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onPress={() =>
+                                void moderate(pending.action, person.id)
+                              }
+                            >
+                              {CONFIRM_LABEL}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onPress={() => setPending(null)}
+                            >
+                              {CANCEL_LABEL}
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className={styles.moderation}>
+                            {person.bannedUntil ? (
+                              <>
+                                <span className={styles.banned}>
+                                  {bannedUntilText(person.bannedUntil)}
+                                </span>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onPress={() => ask("unban", person.id)}
+                                >
+                                  {UNBAN_LABEL}
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="danger-soft"
+                                onPress={() => ask("ban", person.id)}
+                              >
+                                {BAN_LABEL}
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onPress={() => ask("kick", person.id)}
+                            >
+                              {KICK_LABEL}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onPress={() => ask("mute", person.id)}
+                            >
+                              {MUTE_LABEL}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onPress={() => ask("unmute", person.id)}
+                            >
+                              {UNMUTE_LABEL}
+                            </Button>
+                          </div>
+                        )}
+                      </Table.Cell>
                     </Table.Row>
                   ))}
                 </Table.Body>

@@ -130,8 +130,8 @@ describe.each([
       await store.upsert(ana);
       expect(await store.setAppearance("user_ana", look)).toBe(true);
       expect(await store.appearanceOf("user_ana")).toEqual(look);
-      await store.setAppearance("user_ana", { ...look, shirt: 7 });
-      expect((await store.appearanceOf("user_ana"))?.shirt).toBe(7);
+      await store.setAppearance("user_ana", { ...look, shirt: 5 });
+      expect((await store.appearanceOf("user_ana"))?.shirt).toBe(5);
     });
 
     it("is kept apart for each person", async () => {

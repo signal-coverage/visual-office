@@ -29,9 +29,30 @@ describe("fetchSession", () => {
       state: "member",
       organizationId: "org_acme",
       appearance: null,
+      canEditName: false,
       user: { id: "u1", name: "Ana", email: "ana@acme.com", isAdmin: true },
     });
     expect(calls[0].url).toBe(`${base}/account/session`);
+  });
+
+  it("says whether the company lets people choose their name, and not when it does not say or says it oddly", async () => {
+    const session = (canEditName: unknown) =>
+      fetchSession(
+        api({
+          body: {
+            state: "member",
+            organizationId: "org_acme",
+            appearance: null,
+            ...(canEditName === undefined ? {} : { canEditName }),
+            user: { id: "u1", name: "Ana", email: null, isAdmin: false },
+          },
+        }).request,
+        base,
+      );
+    expect(await session(true)).toMatchObject({ canEditName: true });
+    expect(await session(false)).toMatchObject({ canEditName: false });
+    for (const odd of [undefined, "true", 1, null, {}])
+      expect(await session(odd)).toMatchObject({ canEditName: false });
   });
 
   it("brings the look the person chose last", async () => {

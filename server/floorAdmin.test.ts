@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Actor } from "./actor.ts";
+import type { AuditInput } from "./auditStore.ts";
 import { authorizeAdmin, handleFloorAdmin } from "./floorAdmin.ts";
 import { FloorLocks } from "./floorLocks.ts";
 
@@ -482,5 +483,110 @@ describe("handleFloorAdmin, who may edit a floor (access)", () => {
         )
       )?.status,
     ).toBe(405);
+  });
+});
+
+describe("handleFloorAdmin audit", () => {
+  let locks: FloorLocks;
+  let recorded: AuditInput[];
+  const ana: Actor = {
+    kind: "user",
+    user: { id: "user_ana", email: null, name: "Ana", isAdmin: false },
+    roles: { admin: false, headOf: ["office"] },
+  };
+  const call = (actor: Actor, action: string, body: unknown = {}) =>
+    handleFloorAdmin(
+      { method: "POST", path: `/admin/floors/office/${action}`, body, actor },
+      {
+        locks,
+        knownFloors: ["office"],
+        closeFloor: () => 2,
+        audit: async (entry) => {
+          recorded.push(entry);
+        },
+      },
+    );
+
+  beforeEach(() => {
+    locks = new FloorLocks();
+    recorded = [];
+  });
+
+  it("records who closed a floor, and how many people were inside", async () => {
+    await call(ana, "lock", { graceSeconds: 5 });
+    expect(recorded).toEqual([
+      {
+        actorUserId: "user_ana",
+        actorName: "Ana",
+        action: "floor.lock",
+        floor: "office",
+        detail: { graceSeconds: 5, told: 2 },
+      },
+    ]);
+  });
+
+  it("records who opened it again", async () => {
+    await call(ana, "lock");
+    recorded.length = 0;
+    await call(ana, "unlock");
+    expect(recorded).toEqual([
+      {
+        actorUserId: "user_ana",
+        actorName: "Ana",
+        action: "floor.unlock",
+        floor: "office",
+      },
+    ]);
+  });
+
+  it("says the server's own tools did it, when they did", async () => {
+    await call({ kind: "machine" }, "lock", { holder: "dev editor" });
+    expect(recorded[0]).toMatchObject({
+      actorUserId: null,
+      actorName: "Server tools",
+      action: "floor.lock",
+    });
+  });
+
+  it("records nothing for what did not happen", async () => {
+    await call(ana, "lock");
+    recorded.length = 0;
+    // The same editor asking again carries on: nothing new happened
+    await call(ana, "lock");
+    // Somebody else is refused
+    await call(
+      { ...ana, user: { ...ana.user, id: "user_beto", name: "Beto" } },
+      "lock",
+    );
+    // Opening a floor they do not hold
+    await call(
+      { ...ana, user: { ...ana.user, id: "user_beto", name: "Beto" } },
+      "unlock",
+    );
+    // A heartbeat is not news
+    await call(ana, "heartbeat");
+    // A member is refused
+    await call(
+      {
+        kind: "user",
+        user: { ...ana.user, id: "user_eve" },
+        roles: { admin: false, headOf: [] },
+      },
+      "lock",
+    );
+    expect(recorded).toEqual([]);
+  });
+
+  it("still closes the floor when nothing can record it", async () => {
+    const reply = await handleFloorAdmin(
+      {
+        method: "POST",
+        path: "/admin/floors/office/lock",
+        body: {},
+        actor: ana,
+      },
+      { locks, knownFloors: ["office"], closeFloor: () => 0 },
+    );
+    expect(reply?.status).toBe(200);
   });
 });

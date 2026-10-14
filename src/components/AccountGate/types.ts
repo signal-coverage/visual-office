@@ -6,6 +6,8 @@ export interface Member {
   organizationId: string;
   /** The look they chose last, or null if they never chose one. */
   appearance: Appearance | null;
+  /** Whether the company lets people choose their own name. */
+  canEditName: boolean;
   user: { id: string; name: string; email: string | null; isAdmin: boolean };
 }
 

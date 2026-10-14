@@ -1,3 +1,5 @@
+import { auditActor, type AuditRecorder } from "./audit.ts";
+import type { BanStore } from "./banStore.ts";
 import type { AdminReply, AdminRequest } from "./floorAdmin.ts";
 import type { UserStore } from "./userStore.ts";
 
@@ -9,6 +11,11 @@ export interface PeopleAdminDeps {
   users: UserStore;
   /** The floors that exist. */
   knownFloors: readonly string[];
+  /** Where naming and removing heads are noted: who did it. */
+  audit?: AuditRecorder;
+  /** Who is banned now, to show next to each person. Without it the list says nothing of bans. */
+  bans?: BanStore;
+  now?: () => number;
 }
 
 const FORBIDDEN: AdminReply = {
@@ -31,6 +38,14 @@ async function route(
   if (isPeople) {
     if (request.method !== "GET")
       return { status: 405, body: { error: "Use GET." } };
+    const banned = deps.bans
+      ? new Map(
+          (await deps.bans.list((deps.now ?? Date.now)())).map((ban) => [
+            ban.userId,
+            ban.until,
+          ]),
+        )
+      : null;
     return {
       status: 200,
       body: {
@@ -41,6 +56,7 @@ async function route(
           email: person.email,
           isAdmin: person.isAdmin,
           headOf: person.headOf,
+          ...(banned ? { bannedUntil: banned.get(person.id) ?? null } : {}),
         })),
       },
     };
@@ -72,16 +88,28 @@ async function route(
       },
     };
 
+  const wasHead = (await deps.users.headsOf(floor)).includes(userId);
+  let changed: boolean;
   if (head) {
     if (!(await deps.users.addHead(floor, userId)))
       return {
         status: 404,
         body: { error: "Nobody with that id has signed in." },
       };
+    changed = !wasHead;
   } else {
     // Whether they were head or not, afterwards they are not
     await deps.users.removeHead(floor, userId);
+    changed = wasHead;
   }
+  if (changed)
+    await deps.audit?.({
+      ...auditActor(actor),
+      action: head ? "head.assign" : "head.remove",
+      targetUserId: userId,
+      targetName: (await deps.users.get(userId))?.name ?? null,
+      floor,
+    });
   return { status: 200, body: { floor, userId, head } };
 }
 

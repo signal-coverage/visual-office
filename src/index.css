@@ -1,12 +1,15 @@
 @layer theme, base, components, utilities;
 
 @import "tailwindcss";
+@import "@fontsource-variable/sora";
+@import "@fontsource-variable/manrope";
 @import "tw-animate-css";
 
 @import "@heroui/styles/base/base.css" layer(base);
 @import "@heroui/styles/base/scrollbar.css" layer(base);
 
 @import "@heroui/styles/components/alert.css" layer(components);
+@import "@heroui/styles/components/badge.css" layer(components);
 @import "@heroui/styles/components/button.css" layer(components);
 @import "@heroui/styles/components/card.css" layer(components);
 @import "@heroui/styles/components/checkbox.css" layer(components);
@@ -27,12 +30,16 @@
 @import "@heroui/styles/components/list-box-section.css" layer(components);
 @import "@heroui/styles/components/number-field.css" layer(components);
 @import "@heroui/styles/components/popover.css" layer(components);
+@import "@heroui/styles/components/radio.css" layer(components);
+@import "@heroui/styles/components/radio-group.css" layer(components);
 @import "@heroui/styles/components/scroll-shadow.css" layer(components);
 @import "@heroui/styles/components/select.css" layer(components);
 @import "@heroui/styles/components/slider.css" layer(components);
 @import "@heroui/styles/components/spinner.css" layer(components);
+@import "@heroui/styles/components/switch.css" layer(components);
 @import "@heroui/styles/components/surface.css" layer(components);
 @import "@heroui/styles/components/table.css" layer(components);
+@import "@heroui/styles/components/tabs.css" layer(components);
 @import "@heroui/styles/components/textfield.css" layer(components);
 @import "@heroui/styles/components/toggle-button.css" layer(components);
 @import "@heroui/styles/components/toggle-button-group.css" layer(components);
@@ -43,6 +50,64 @@
 @import "@heroui/styles/utilities";
 @import "@heroui/styles/variants";
 
+@theme inline {
+  --font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Sora Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * HeroUI is themed by overriding its semantic tokens. These rules are
+ * unlayered, so they win over HeroUI's own @layer values, and its derived
+ * tokens (hover, soft, ...) recompute from them. Warm light palette: cream
+ * background, terracotta accent, sage secondary, warm borders.
+ */
+:root:not(.dark, [data-theme="dark"]) {
+  --radius: 0.9rem;
+
+  --background: oklch(0.96 0.015 80);
+  --foreground: oklch(0.24 0.02 60);
+
+  --surface: oklch(0.99 0.008 80);
+  --surface-secondary: oklch(0.94 0.017 80);
+  --surface-tertiary: oklch(0.91 0.02 78);
+  --overlay: oklch(0.99 0.008 80);
+  --muted: oklch(0.5 0.02 60);
+
+  --default: oklch(0.9 0.03 140);
+  --default-foreground: oklch(0.3 0.05 150);
+
+  --accent: oklch(0.58 0.14 45);
+  --accent-foreground: oklch(0.99 0.01 80);
+  --focus: var(--accent);
+  --link: var(--accent);
+
+  --success: oklch(0.55 0.12 150);
+  --success-foreground: oklch(0.99 0.01 80);
+  --warning: oklch(0.75 0.15 70);
+  --danger: oklch(0.58 0.2 27);
+  --danger-foreground: oklch(0.99 0.01 80);
+
+  --field-background: oklch(0.99 0.008 80);
+  --field-foreground: var(--foreground);
+  --field-border-width: 1px;
+  --field-border: oklch(0.86 0.02 75);
+
+  --border: oklch(0.86 0.02 75);
+  --separator: oklch(0.89 0.02 75);
+  --backdrop: oklch(0.2 0.02 60 / 0.45);
+
+  --surface-shadow:
+    0 1px 2px 0 oklch(0.3 0.04 60 / 0.06), 0 1px 1px 0 oklch(0.3 0.04 60 / 0.05);
+  --overlay-shadow:
+    0 2px 8px 0 oklch(0.3 0.04 60 / 0.08),
+    0 18px 40px 0 oklch(0.3 0.04 60 / 0.16);
+  --field-shadow: 0 1px 2px 0 oklch(0.3 0.04 60 / 0.05);
+}
+
+.button--secondary {
+  --button-fg: var(--default-foreground);
+}
+
 html,
 body,
 #root {
@@ -50,6 +115,36 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #1b1d24;
-  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+}
+
+/** Dark translucent panel for everything drawn over the 3D scene. */
+@utility glass {
+  background: oklch(0.2 0.02 60 / 0.7);
+  color: oklch(0.97 0.01 80);
+  backdrop-filter: blur(10px);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  border-radius: var(--radius);
+  color-scheme: dark;
+  --foreground: oklch(0.97 0.01 80);
+  --muted: oklch(0.82 0.02 80);
+  --default: oklch(1 0 0 / 0.12);
+  --default-hover: oklch(1 0 0 / 0.2);
+  --default-foreground: oklch(0.97 0.01 80);
+  --surface-secondary: oklch(1 0 0 / 0.08);
+  --field-background: oklch(1 0 0 / 0.1);
+  --field-foreground: oklch(0.97 0.01 80);
+  --field-border: oklch(1 0 0 / 0.18);
+  --border: oklch(1 0 0 / 0.18);
+  --separator: oklch(1 0 0 / 0.12);
+  --success: oklch(0.78 0.15 150);
+  --accent-soft-foreground: oklch(0.86 0.09 55);
 }

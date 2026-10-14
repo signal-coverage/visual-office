@@ -1,8 +1,10 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { profileFromClerkUser, type Profile } from "./authenticate.ts";
 import type { AccountDeps } from "./account.ts";
+import type { AuditRecorder } from "./audit.ts";
 import { authStatusFromEnv } from "./authStatus.ts";
 import type { Company } from "./company.ts";
+import type { CompanySettings } from "./companySettings.ts";
 import type { UserStore } from "./userStore.ts";
 
 type Env = Record<string, string | undefined>;
@@ -62,6 +64,8 @@ export function clerkAuthFromEnv(
   env: Env,
   users: UserStore,
   company: Company,
+  settings: CompanySettings,
+  audit?: AuditRecorder,
 ): AccountDeps | null {
   if (!authStatusFromEnv(env).ready) return null;
   const secretKey = env.CLERK_SECRET_KEY!.trim();
@@ -115,8 +119,10 @@ export function clerkAuthFromEnv(
     isMember,
     isInOrganization,
     company,
+    settings,
     users,
     adminEmails: adminEmailsFromEnv(env),
     now: Date.now,
+    ...(audit ? { audit } : {}),
   };
 }

@@ -17,8 +17,21 @@ export interface VoiceConfig {
   roomPrefix?: string;
 }
 
-const OPEN_SOURCES = [TrackSource.MICROPHONE, TrackSource.CAMERA];
-const PRIVATE_SOURCES = [...OPEN_SOURCES, TrackSource.SCREEN_SHARE];
+/**
+ * What somebody may publish in the call of a zone (the shared office call when
+ * `zone` is null). A screen is shared in private rooms, where there is a screen
+ * to show it on; somebody who may not speak (a moderator muted them) keeps their camera.
+ */
+export function voiceSources(
+  zone: string | null,
+  canSpeak: boolean,
+): TrackSource[] {
+  return [
+    ...(canSpeak ? [TrackSource.MICROPHONE] : []),
+    TrackSource.CAMERA,
+    ...(zone ? [TrackSource.SCREEN_SHARE] : []),
+  ];
+}
 
 const TOKEN_TTL = "2h";
 const PRIVATE_TOKEN_TTL = "2m";
@@ -107,6 +120,31 @@ export interface VoiceAdmin {
   removeParticipant: (room: string, identity: string) => Promise<void>;
 }
 
+/** What a moderator may do to somebody in a call. */
+export interface VoiceModeration {
+  /**
+   * Takes the microphone away from somebody in a call (or gives it back): what
+   * they may publish changes at once, and a microphone already on is muted. Does
+   * nothing for somebody who is not in the call.
+   */
+  setCanSpeak: (
+    room: string,
+    identity: string,
+    zone: string | null,
+    canSpeak: boolean,
+  ) => Promise<void>;
+}
+
+/** What `VoiceAdmin` uses of LiveKit's room service: so it can be tried without one. */
+export type RoomClient = Pick<
+  RoomServiceClient,
+  | "listParticipants"
+  | "removeParticipant"
+  | "getParticipant"
+  | "updateParticipant"
+  | "mutePublishedTrack"
+>;
+
 /**
  * LiveKit answers "not found" when asked about a room nobody is in (it deletes
  * a room as soon as the last person leaves). That is an empty room, not a failure.
@@ -117,13 +155,15 @@ export function isRoomMissing(error: unknown): boolean {
   return status === 404 || code === "not_found";
 }
 
-export function createVoiceAdmin(config: VoiceConfig): VoiceAdmin {
+export function createVoiceAdmin(
+  config: VoiceConfig,
   // The admin API speaks http(s) on the same host the browsers reach with ws(s)
-  const client = new RoomServiceClient(
+  client: RoomClient = new RoomServiceClient(
     config.url.replace(/^ws/i, "http"),
     config.apiKey,
     config.apiSecret,
-  );
+  ),
+): VoiceAdmin & VoiceModeration {
   return {
     listParticipants: async (room) => {
       try {
@@ -135,6 +175,26 @@ export function createVoiceAdmin(config: VoiceConfig): VoiceAdmin {
     },
     removeParticipant: (room, identity) =>
       client.removeParticipant(room, identity),
+    setCanSpeak: async (room, identity, zone, canSpeak) => {
+      try {
+        await client.updateParticipant(room, identity, undefined, {
+          canPublish: true,
+          canSubscribe: true,
+          canPublishData: false,
+          canPublishSources: voiceSources(zone, canSpeak),
+        });
+        if (canSpeak) return;
+        // A microphone that is already on keeps going unless it is muted too
+        const participant = await client.getParticipant(room, identity);
+        for (const track of participant.tracks)
+          if (track.source === TrackSource.MICROPHONE && !track.muted)
+            await client.mutePublishedTrack(room, identity, track.sid, true);
+      } catch (error) {
+        // Not in the call (yet): the token they get next already says what they may publish
+        if (isRoomMissing(error)) return;
+        throw error;
+      }
+    },
   };
 }
 
@@ -149,6 +209,7 @@ export async function createVoiceToken(
   identity: string,
   name: string,
   zone: string | null = null,
+  canSpeak = true,
 ): Promise<string> {
   const token = new AccessToken(config.apiKey, config.apiSecret, {
     identity,
@@ -160,7 +221,7 @@ export async function createVoiceToken(
     roomJoin: true,
     canPublish: true,
     // Sharing a screen is for private rooms, where there is a screen to show it on
-    canPublishSources: zone ? PRIVATE_SOURCES : OPEN_SOURCES,
+    canPublishSources: voiceSources(zone, canSpeak),
     canSubscribe: true,
     canPublishData: false,
   });

@@ -4,6 +4,7 @@ import {
   type VoiceCredentials,
 } from "../../shared/voice.ts";
 import { meterSteps, smoothLevel } from "./micMeter";
+import { MUTED_NOTICE } from "../../shared/moderation.ts";
 import { zoneHasScreen } from "../../shared/screens.ts";
 import { ScreenShares } from "./screenShares";
 import { VoiceChat, type VoiceState } from "./VoiceChat";
@@ -62,6 +63,7 @@ const METER_INTERVAL = 0.08;
  */
 export class CallController {
   private readonly events: CallEvents;
+  private readonly receiveVideo: boolean;
   private chat: VoiceChat | null = null;
   private credentials: VoiceCredentials | null = null;
   private state: VoiceState = "unavailable";
@@ -78,13 +80,21 @@ export class CallController {
    * connected to that decides who we can hear.
    */
   private callZone: string | null = null;
+  /** A moderator took the microphone away: the server will not let it publish, so do not offer it. */
+  private mutedByModerator = false;
   /** Screens shared by others in this call, and whether we are sharing ours. */
   private readonly shares = new ScreenShares();
   private sharingMine = false;
+  private picking = false;
   private view: ScreenView = { kind: "none" };
 
-  constructor(events: CallEvents) {
+  constructor(
+    events: CallEvents,
+    /** `receiveVideo: false` is for a screen with nowhere to draw the cameras: only sound is received. */
+    options: { receiveVideo?: boolean } = {},
+  ) {
     this.events = events;
+    this.receiveVideo = options.receiveVideo ?? true;
   }
 
   /**
@@ -113,10 +123,28 @@ export class CallController {
         this.setState("muted");
         break;
       case "muted":
+        if (this.mutedByModerator) {
+          this.events.onNotice(MUTED_NOTICE);
+          break;
+        }
         this.chat?.setMuted(false);
         this.wanted.mic = true;
         this.setState("live");
         break;
+    }
+  }
+
+  /**
+   * A moderator muted us, or let us speak again. While muted the microphone
+   * goes off at once and stays off, also when the call moves to another room.
+   */
+  setMutedByModerator(muted: boolean) {
+    this.mutedByModerator = muted;
+    if (!muted) return;
+    this.wanted.mic = false;
+    if (this.state === "live") {
+      this.chat?.setMuted(true);
+      this.setState("muted");
     }
   }
 
@@ -193,7 +221,8 @@ export class CallController {
       chat.setVolume(identity, peerVolume(distance, zone));
       chat.setVideoWanted(
         identity,
-        peerWantsVideo(distance, chat.isReceivingVideo(identity), zone),
+        this.receiveVideo &&
+          peerWantsVideo(distance, chat.isReceivingVideo(identity), zone),
       );
     });
   }
@@ -239,6 +268,10 @@ export class CallController {
   }) {
     const credentials = this.credentials;
     if (!credentials) return;
+    if (mic && this.mutedByModerator) {
+      this.events.onNotice(MUTED_NOTICE);
+      mic = false;
+    }
     this.leave();
 
     const chat = new VoiceChat({
@@ -285,7 +318,13 @@ export class CallController {
     if (screen) await this.setScreen(true);
   }
 
+  /** Whether the browser is asking what to share right now. It takes the mouse away from the game while it does. */
+  get choosingScreen(): boolean {
+    return this.picking;
+  }
+
   private async setScreen(on: boolean) {
+    this.picking = on;
     try {
       await this.chat?.setScreenShareEnabled(on);
     } catch (error) {
@@ -294,6 +333,8 @@ export class CallController {
       const cancelled =
         error instanceof Error && error.name === "NotAllowedError";
       this.events.onNotice(cancelled ? NOTICES.cancelled : NOTICES.failed);
+    } finally {
+      this.picking = false;
     }
   }
 

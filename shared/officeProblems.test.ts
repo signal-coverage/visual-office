@@ -25,24 +25,24 @@ describe("findProblems", () => {
 
   describe("outside", () => {
     it("catches furniture past the walls", () => {
-      const problems = findProblems([item("desk", 9.6, 0)], []);
+      const problems = findProblems([item("desk", 14.6, 0)], []);
       expect(problems.map((p) => p.code)).toContain("outside");
       expect(problems[0].targets).toEqual([{ list: "furniture", index: 0 }]);
     });
 
     it("catches a ceiling light that sticks out too", () => {
-      expect(codes([item("light", 9.8, 0)])).toContain("outside");
+      expect(codes([item("light", 14.8, 0)])).toContain("outside");
     });
 
     it("lets furniture touch the wall", () => {
       // A desk 1.8 wide against the west wall: its edge is exactly on the wall
-      expect(codes([item("desk", -9.85 + 0.9, 0)])).not.toContain("outside");
+      expect(codes([item("desk", -14.85 + 0.9, 0)])).not.toContain("outside");
     });
 
     it("catches a model past the wall", () => {
       const shelf: PropPlacement = {
         model: "s.glb",
-        at: [9.9, 0],
+        at: [14.9, 0],
         footprint: [1, 1],
       };
       const problems = findProblems([], [shelf]);
@@ -102,19 +102,19 @@ describe("findProblems", () => {
   });
 
   describe("walls", () => {
-    it("catches furniture standing inside the meeting room's divider", () => {
-      const problems = codes([item("desk", 5.5, 4)]);
+    it("catches furniture standing inside the meeting room's glass wall", () => {
+      const problems = codes([item("desk", -6, -8)]);
       expect(problems).toContain("wall");
     });
 
     it("lets furniture stand in the doorway gap if there is room (but it may block the way)", () => {
-      expect(codes([item("chair", 5.5, 0)])).not.toContain("wall");
+      expect(codes([item("chair", -6, -3.5)])).not.toContain("wall");
     });
   });
 
   describe("the spawn area", () => {
     it("catches furniture where people appear", () => {
-      expect(codes([item("desk", -8, 0)])).toContain("spawn");
+      expect(codes([item("desk", 0, 8.5)])).toContain("spawn");
     });
 
     it("leaves furniture just outside it alone", () => {
@@ -124,28 +124,33 @@ describe("findProblems", () => {
 
   describe("reaching the rooms", () => {
     it("catches a meeting room that nobody can walk into", () => {
-      // A row of plants, too close together to squeeze between, west of the door
-      const plants = [-1.25, -0.75, -0.25, 0.25, 0.75, 1.25].map((z) =>
-        item("plant", 5.0, z),
-      );
+      // Plants too close together to squeeze between, filling the open corner that is its door
+      const plants = [
+        item("plant", -6, -4.5),
+        item("plant", -6, -3.5),
+        item("plant", -6, -2.5),
+        item("plant", -6.5, -2),
+        item("plant", -7.5, -2),
+        item("plant", -8.5, -2),
+      ];
       const problems = findProblems(plants, []);
       const unreachable = problems.find((p) => p.code === "unreachable")!;
       expect(unreachable.message).toMatch(/meeting room/i);
     });
 
     it("does not complain about a room that is only a little more cramped", () => {
-      expect(codes([item("plant", 5.0, 0)])).not.toContain("unreachable");
+      expect(codes([item("plant", -6, -3.5)])).not.toContain("unreachable");
     });
   });
 
   it("reports every problem, not just the first", () => {
-    const found = codes([item("desk", 9.6, 0), item("desk", -8, 0)]);
+    const found = codes([item("desk", 14.6, 0), item("desk", 0, 8.5)]);
     expect(found).toContain("outside");
     expect(found).toContain("spawn");
   });
 
   it("describes each problem in words a person can act on", () => {
-    for (const problem of findProblems([item("desk", 9.6, 0)], [])) {
+    for (const problem of findProblems([item("desk", 14.6, 0)], [])) {
       expect(problem.message.trim().length).toBeGreaterThan(10);
     }
   });

@@ -10,9 +10,9 @@ const look = { skin: 1, hairColor: 2, hairStyle: 0, shirt: 3, pants: 4 };
 
 describe("nextLook", () => {
   it("is the new look when something really changed", () => {
-    expect(nextLook(look, { ...look, shirt: 7 })).toEqual({
+    expect(nextLook(look, { ...look, shirt: 5 })).toEqual({
       ...look,
-      shirt: 7,
+      shirt: 5,
     });
   });
 
@@ -21,9 +21,9 @@ describe("nextLook", () => {
   });
 
   it("changes only what is a valid choice and keeps the rest as it was", () => {
-    expect(nextLook(look, { ...look, shirt: 7, pants: 999 })).toEqual({
+    expect(nextLook(look, { ...look, shirt: 5, pants: 999 })).toEqual({
       ...look,
-      shirt: 7,
+      shirt: 5,
     });
   });
 
@@ -37,9 +37,9 @@ describe("nextLook", () => {
   });
 
   it("drops anything that is not part of a look", () => {
-    expect(nextLook(look, { ...look, shirt: 7, isAdmin: true })).toEqual({
+    expect(nextLook(look, { ...look, shirt: 5, isAdmin: true })).toEqual({
       ...look,
-      shirt: 7,
+      shirt: 5,
     });
   });
 });

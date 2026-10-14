@@ -9,7 +9,10 @@ Think WorkAdventure, but in 3D.
 
 - First-person movement (WASD + mouse look, Shift to run) with wall and furniture collisions
 - Multiplayer presence: other people appear as animated avatars with name tags
-- Text chat (Enter)
+- Text chat (Enter) with three scopes: everyone, nearby (the people who can hear you, or the ones in your private room) and a direct message to one person. A direct message shows a badge on the chat button, a toast, an optional short beep, and the tab title counts what is waiting; do-not-disturb people still get the message, silently
+- Knock (K, or the menu): at a private room's door it tells the people inside, otherwise it tells the person you face within 3 m; one every 5 seconds, never to do-not-disturb people
+- Presence status (available, in a meeting, do not disturb, away): a coloured dot on the name tag and in the people list; change it with Z or from the menu. Away comes by itself after 5 minutes without input, and in a meeting while you are in the meeting room, unless you chose something else
+- Emotes (wave, clap, raise hand, thumbs up, dance): hold E and press 1 to 5, or use the menu; everybody sees the avatar's arms move and an icon float above the head for 3 seconds
 - Proximity voice chat (M): full volume within 2 m, silent beyond 10 m
 - Proximity video (C): a camera replaces the face of whoever is within 6 m (the hair stays on top)
 - Microphone meter next to the voice button, read from the sound that is really being sent
@@ -18,14 +21,19 @@ Think WorkAdventure, but in 3D.
 - Screen sharing (P) onto the wall screen of the meeting room, seen only by the people in the room
 - Every player has a chat colour of their own, the same in the chat and in the people list
 - Whiteboard in the meeting room: draw on it live, and everybody in the room sees it as it happens
-- Sign-in (Clerk): only the people of the company get in; their name comes from their profile
+- Sign-in (Clerk): only the people of the company get in; their name comes from their profile, unless an admin lets people choose their own (company setting, off by default)
 - Roles: admins and the head of each floor may edit it; admins name the heads from the game
+- Moderation: admins, and the head of a floor on their own floor, can mute somebody's microphone, remove them from the office or ban them for a few minutes, from the game menu or the People screen. The server checks it every time; admins cannot be moderated
+- Activity log: admins see who did what (moderation, closing and publishing floors, naming heads, company settings) in the **Activity** screen of the lobby
+- Room calendars: an admin pastes the iCalendar (ICS) feed of each private room; the room badge then shows what is on now and next, and the **Room calendars** screen of the menu lists the day. Read-only, no OAuth, no booking
 - Office editor: move, turn and add furniture and your own models on a plan seen from above, with warnings when something is wrong. Inside the game for heads and admins; on a developer's machine for everybody
 - Layouts kept in a database with versions: publish, go back to an earlier one, vouch for a known-good one
 - Editing closes the floor: people inside are warned and sent out, nobody enters meanwhile
 - Your own 3D models: drop a `.glb` in `public/models/` and add one line, see [docs/MODELING.md](docs/MODELING.md)
 - Server-side referee: speed limits and collisions are checked on the server
-- Diagnostics panel (F3): FPS, worst frame, GPU and server corrections, to find out why it feels slow
+- Diagnostics panel (F3): FPS, worst frame, GPU, graphics quality in use and server corrections, to find out why it feels slow
+- Graphics quality (Esc, Options): Auto, High or Low. Low turns off shadows, caps the resolution at 1x and updates far-away people less often; Auto picks Low on software rendering or after about 4 s of frames under 30 fps, and never goes back up by itself
+- Lite mode: a device with no WebGL, a touch-only device or a narrow window gets a lite screen instead of the 3D office: who is online, chat, room calendars and the voice call (listen and mute). No 3D view, no movement, no camera, no screen sharing. `?view=lite` / `?view=office` in the link force one or the other (the office cannot be forced without WebGL)
 - Lobby with a name and a character creator (skin, hair style and colour, shirt, pants), with a
   live 3D preview; your choice is remembered on this browser
 - Automatic reconnection and clear disconnect handling
@@ -71,7 +79,10 @@ Use headphones when testing with two tabs on one machine, or you will hear an ec
 | W A S D | Move                                                                                  |
 | Shift   | Run                                                                                   |
 | Mouse   | Look around                                                                           |
-| Enter   | Open the chat, then Enter to send (Esc to cancel)                                     |
+| Enter   | Open the chat (pick Everyone, Nearby or Direct), then Enter to send (Esc to cancel)   |
+| K       | Knock on a private room's door, or on the person you face                             |
+| Z       | Change your status (available, in a meeting, do not disturb, away)                    |
+| E + 1–5 | Hold E and press a number: wave, clap, raise hand, thumbs up, dance                   |
 | Tab     | Show / hide the people list                                                           |
 | Click   | At a whiteboard: hold to draw. 1–7 choose the pen (7 is the eraser), Backspace clears |
 | F3      | Show / hide the diagnostics panel (also `?debug` in the link)                         |
@@ -156,7 +167,7 @@ docs/           Modelling guide, the building design, adding a company
   player has a distance "budget" that tolerates lag bursts but not teleports or speed hacks, and the
   whole path is checked against the layout. An impossible move makes the server answer with the
   real position and the client snaps back. The server also chooses where each player appears.
-- **Positions** are synchronised through Colyseus state; chat is broadcast as messages.
+- **Positions** are synchronised through Colyseus state; chat is sent as messages. The server decides who receives each one (`server/chatRouting.ts`: everybody, the people in earshot or the same private zone, or one person), so a client never chooses recipients. Knocks work the same way (`server/knockRouting.ts`).
 - **Looks** are a handful of palette indices (`shared/appearance.ts`), sent when joining and checked
   by the server: anything that is not a valid choice is replaced by a default made from the name.
   Adding a colour or a hair style is one line in that file; the menu and the avatar pick it up.
@@ -164,6 +175,14 @@ docs/           Modelling guide, the building design, adding a company
   to the player and everybody else sees the avatar change at once. Signed-in people get their last
   look back on the next visit (`users.appearance`); the rule for who may change it is one function,
   `mayChangeLook` in `server/look.ts`.
+- **Status and emotes.** Each player has a `status` in the room state (`shared/presence.ts`). The
+  client sends what it chose (`status`) and whether it went quiet (`idle`, after `IDLE_AFTER_MS`
+  without input); the server decides what everybody sees (`effectiveStatus`: a choice other than
+  available is kept, otherwise busy in a private zone, away when idle). `status` is checked against
+  the fixed list and has a 400 ms cooldown; who may change it is one function, `mayChangeStatus` in
+  `server/presence.ts`. Emotes (`shared/emotes.ts`) are a fixed list: the server validates the
+  `emote` message, limits it to one a second and broadcasts `{id, emote}`; the client moves the arms
+  (`src/game/emotePose.ts`) and floats an icon for 3 seconds.
 - **Voice and video** go through LiveKit. The game server only issues a short-lived token per
   player; each participant's identity is their game session id, so media streams map one to one to
   avatars. Distances are re-evaluated five times a second: audio volume fades with distance, and
@@ -242,6 +261,16 @@ Its limits, and what to do about each:
   quiet moment.
 - **There is one floor.** The lock, the layouts and the roles are already per floor, but the server
   only knows `office`. _Instead (planned):_ floors kept in the database, one per area.
+
+#### Moderation and the activity log
+
+- **Who may:** `canModerate` / `mayModerate` in [`server/moderation.ts`](server/moderation.ts): admins, and the head of that floor. Nobody acts on themselves, and nobody acts on an admin. Roles are looked up on the server on every action.
+- **Mute** takes the microphone away through LiveKit's server API (`updateParticipant` removes the microphone from what the person may publish, and a microphone already on is muted). It lasts until they leave the office; the tokens the server issues meanwhile carry no microphone. **Let speak** gives it back.
+- **Remove** closes the person's connection with code 4005 and the message _"You were removed from the office by a moderator."_; the game does not join again by itself. **Ban** (1 to 240 minutes, 10 by default) also refuses them at the door (`onAuth`, code 4006) by their account id until it ends.
+- It is also reachable from outside the game: `POST /admin/moderation` with `{action, userId, minutes?}`.
+- **Activity log:** table `audit_log` ([`server/auditStore.ts`](server/auditStore.ts), memory and Postgres), read with `GET /admin/audit?limit=&before=` (admins only, newest first, up to 200 per page). The app never edits or deletes it.
+
+_Limits:_ bans are kept in memory, so a server restart forgets them, and they are for signed-in people only (without sign-in nobody can moderate). The log has no retention: it only grows. _Instead:_ a `bans` table with the same memory/Postgres pattern, and a scheduled `DELETE FROM audit_log WHERE at < ...` (or one partition per month) run from the database provider.
 
 #### The building
 
@@ -324,8 +353,16 @@ Things worth knowing about private zones:
   retry" instead of keeping "Mic on".
 - Client and server must be deployed together. A page from before this feature never moves to the
   private room, so it simply does not hear (or get heard in) the meeting room; reload the page.
-- **Text chat is not private**: it is still broadcast to everyone.
+- **Text chat** has scopes (everyone, nearby, direct); direct messages reach only the sender and the target. Messages are not stored: whoever joins later sees none of them.
 - Adding a zone is one entry in `ZONES`; the client and the server pick it up from there.
+
+### Room calendars
+
+Each private room can show what is happening in it. There is **no OAuth and no Google or Microsoft API**: an admin pastes an iCalendar (ICS) feed address per room in the lobby's **Calendars** screen (Google Calendar: "Secret address in iCal format"; Outlook: a published calendar). Details and limits in [docs/BUILDING.md](docs/BUILDING.md).
+
+- Server: [`server/ics.ts`](server/ics.ts) (parser), [`server/calendarFetch.ts`](server/calendarFetch.ts) (fetcher with SSRF protection), [`server/calendarService.ts`](server/calendarService.ts) (storage in `settings` as `calendar_feed:<room>`, 5-minute cache), `GET|POST /admin/calendars` (admins) and `GET /calendar` (members: titles and times only, never the address).
+- Client: a one-line badge under the zone badge, the **Room calendars** item of the Esc menu, and the admin screen; both screens are lazy-loaded.
+- For tests only, `CALENDAR_ALLOW_LOCAL_FOR_TESTS=1` lets a feed be plain http on this machine; it is ignored when `NODE_ENV=production`.
 
 ## Configuration
 
@@ -414,7 +451,15 @@ Each one comes with a way around it.
   is drawn on the whiteboard.
   _Instead:_ keep the boards in a small database or a volume on the server (Railway offers both),
   or add a button that saves a board as an image before a meeting ends.
-- Three.js (~540 kB) is the largest part of the first load. LiveKit (~520 kB) is only downloaded
-  when someone joins the call.
-  _Instead:_ nothing is needed yet: both are cached after the first visit, and the host already
-  compresses them. If the first load ever matters, preload the Three.js chunk from the lobby.
+- Three.js (~737 kB, 187 kB gzip) is the largest part of the first load. LiveKit (~520 kB) is only downloaded
+  when someone joins the call. The build splits stable vendor code (react, clerk, colyseus, three)
+  into their own cacheable chunks and the 3D office and the lite screen are separate lazy chunks:
+  no chunk is over the 800 kB warning limit, but a desktop visit still downloads about the same
+  total as before (the split helps caching and lite devices, not the first desktop load).
+  _Instead:_ nothing is needed yet: all are cached after the first visit, and the host already
+  compresses them.
+- **Lite mode is not the office.** It connects to the same room but never moves: the person stays
+  where new arrivals appear, so the "nearby" chat and what others hear of their voice come from
+  that spot, and they hear everybody in the open office at full volume. The chat is opened with its
+  button; typing Enter on some phone keyboards has not been tested on a real device.
+  _Instead:_ a touch-friendly 3D control scheme (virtual joystick) would give mobile the real office.

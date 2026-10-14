@@ -1,22 +1,52 @@
-import { Button, Checkbox, Kbd, Label, Modal, Slider } from "@heroui/react";
-import { useEffect, useState } from "react";
+import {
+  Button,
+  Checkbox,
+  Kbd,
+  Label,
+  Modal,
+  Radio,
+  RadioGroup,
+  Slider,
+} from "@heroui/react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   randomAppearance,
   sameAppearance,
 } from "../../../shared/appearance.ts";
+import { EMOTE_ICONS, EMOTE_LABELS, EMOTES } from "../../../shared/emotes.ts";
+import {
+  sanitizeStatus,
+  STATUS_LABELS,
+  STATUSES,
+} from "../../../shared/presence.ts";
 import { CONTROLS } from "../../App/controls";
+import { QUALITY_CHOICES, sanitizeQuality } from "../../game/quality";
+import { desktopPermission, desktopSupported } from "../../chat/desktop";
 import { AppearancePicker, RANDOM_LABEL } from "../AppearancePicker";
 import { AvatarPreview } from "../AvatarPreview";
+import { ErrorBoundary } from "../ErrorBoundary";
+import { LoadFailed } from "../LoadFailed";
+import { StatusDot } from "../StatusDot";
 import {
   CHARACTER,
   CONTROLS_TITLE,
+  EMOTES_PANEL,
   ITEMS,
   OPTIONS,
+  QUALITY_LABELS,
   SENSITIVITY_RANGE,
+  STATUS,
   TITLE,
 } from "./consts";
 import * as styles from "./styles";
 import type { GameMenuProps, Panel } from "./types";
+
+// Its own chunk: only moderators ever open it
+const ModerationPanel = lazy(() =>
+  import("../ModerationPanel").then((module) => ({
+    default: module.ModerationPanel,
+  })),
+);
 
 /**
  * The menu of the office, opened with Esc: go back, change how you look, see
@@ -27,11 +57,19 @@ export function GameMenu({
   name,
   look,
   settings,
+  status,
+  shownStatus,
+  onChangeStatus,
+  onEmote,
+  onKnock,
+  onOpenCalendar,
+  onToggleDesktopNotifications,
   onResume,
   onChangeLook,
   onChangeSettings,
   onLeave,
   onSignOut,
+  moderation,
 }: GameMenuProps) {
   const [panel, setPanel] = useState<Panel>("main");
   // What is being tried on in the character panel: it is only saved with Save
@@ -94,6 +132,38 @@ export function GameMenu({
                     fullWidth
                     variant="secondary"
                     className={styles.item}
+                    onPress={() => setPanel("status")}
+                  >
+                    {ITEMS.status}
+                  </Button>
+                  <Button
+                    fullWidth
+                    variant="secondary"
+                    className={styles.item}
+                    onPress={() => setPanel("emotes")}
+                  >
+                    {ITEMS.emotes}
+                  </Button>
+                  <Button
+                    fullWidth
+                    variant="secondary"
+                    className={styles.item}
+                    onPress={onKnock}
+                  >
+                    {ITEMS.knock}
+                  </Button>
+                  <Button
+                    fullWidth
+                    variant="secondary"
+                    className={styles.item}
+                    onPress={onOpenCalendar}
+                  >
+                    {ITEMS.calendar}
+                  </Button>
+                  <Button
+                    fullWidth
+                    variant="secondary"
+                    className={styles.item}
                     onPress={() => setPanel("controls")}
                   >
                     {ITEMS.controls}
@@ -106,6 +176,16 @@ export function GameMenu({
                   >
                     {ITEMS.options}
                   </Button>
+                  {moderation && (
+                    <Button
+                      fullWidth
+                      variant="secondary"
+                      className={styles.item}
+                      onPress={() => setPanel("moderation")}
+                    >
+                      {ITEMS.moderation}
+                    </Button>
+                  )}
                   <Button
                     fullWidth
                     variant="secondary"
@@ -137,6 +217,15 @@ export function GameMenu({
                 <div className={styles.columns}>
                   <div className={styles.previewColumn}>
                     <AvatarPreview name={name} appearance={draft} />
+                  </div>
+                  <div className={styles.pickerColumn}>
+                    <AppearancePicker
+                      value={draft}
+                      onChange={(next) => {
+                        setDraft(next);
+                        setSaved(false);
+                      }}
+                    />
                     <Button
                       variant="secondary"
                       size="sm"
@@ -148,16 +237,15 @@ export function GameMenu({
                       {RANDOM_LABEL}
                     </Button>
                   </div>
-                  <AppearancePicker
-                    value={draft}
-                    onChange={(next) => {
-                      setDraft(next);
-                      setSaved(false);
-                    }}
-                  />
                 </div>
               </Modal.Body>
               <Modal.Footer className={styles.actions}>
+                {saved && sameAppearance(draft, look) && (
+                  <p className={styles.note} role="status">
+                    {CHARACTER.saved}
+                  </p>
+                )}
+                {back}
                 <Button
                   isDisabled={sameAppearance(draft, look)}
                   onPress={() => {
@@ -167,13 +255,79 @@ export function GameMenu({
                 >
                   {CHARACTER.save}
                 </Button>
-                {back}
-                {saved && sameAppearance(draft, look) && (
-                  <p className={styles.note} role="status">
-                    {CHARACTER.saved}
+              </Modal.Footer>
+            </>
+          )}
+
+          {panel === "status" && (
+            <>
+              {heading(STATUS.title)}
+              <Modal.Body className={styles.body}>
+                <p className={styles.intro}>{STATUS.intro}</p>
+                <RadioGroup
+                  aria-label={STATUS.label}
+                  value={status}
+                  onChange={(value) => {
+                    const next = sanitizeStatus({ status: value });
+                    if (next) onChangeStatus(next);
+                  }}
+                >
+                  {STATUSES.map((option) => (
+                    <Radio
+                      key={option}
+                      value={option}
+                      className={styles.statusOption}
+                    >
+                      <Radio.Content>
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        <Label className={styles.statusLabel}>
+                          <StatusDot status={option} />
+                          {STATUS_LABELS[option]}
+                        </Label>
+                      </Radio.Content>
+                    </Radio>
+                  ))}
+                </RadioGroup>
+              </Modal.Body>
+              <Modal.Footer className={styles.actions}>
+                {shownStatus !== status && (
+                  <p className={styles.showing} role="status">
+                    {STATUS.showing}
+                    <StatusDot status={shownStatus} />
+                    {STATUS_LABELS[shownStatus]}
                   </p>
                 )}
+                {back}
               </Modal.Footer>
+            </>
+          )}
+
+          {panel === "emotes" && (
+            <>
+              {heading(EMOTES_PANEL.title)}
+              <Modal.Body>
+                <p className={styles.intro}>{EMOTES_PANEL.intro}</p>
+                <div className={styles.emoteGrid}>
+                  {EMOTES.map((emote, index) => (
+                    <Button
+                      key={emote}
+                      variant="secondary"
+                      className={styles.emoteButton}
+                      onPress={() => onEmote(emote)}
+                    >
+                      <span className={styles.emoteIcon} aria-hidden="true">
+                        {EMOTE_ICONS[emote]}
+                      </span>
+                      {EMOTE_LABELS[emote]}
+                      <Kbd className={styles.key}>{index + 1}</Kbd>
+                    </Button>
+                  ))}
+                </div>
+                <p className={styles.intro}>{EMOTES_PANEL.hint}</p>
+              </Modal.Body>
+              <Modal.Footer className={styles.actions}>{back}</Modal.Footer>
             </>
           )}
 
@@ -220,6 +374,29 @@ export function GameMenu({
                     <Slider.Thumb />
                   </Slider.Track>
                 </Slider>
+                <RadioGroup
+                  aria-label={OPTIONS.quality}
+                  value={settings.quality}
+                  onChange={(value) =>
+                    onChangeSettings({
+                      ...settings,
+                      quality: sanitizeQuality(value),
+                    })
+                  }
+                >
+                  <Label>{OPTIONS.quality}</Label>
+                  {QUALITY_CHOICES.map((choice) => (
+                    <Radio key={choice} value={choice}>
+                      <Radio.Content>
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        <Label>{QUALITY_LABELS[choice]}</Label>
+                      </Radio.Content>
+                    </Radio>
+                  ))}
+                </RadioGroup>
+                <p className={styles.intro}>{OPTIONS.qualityNote}</p>
                 <Checkbox
                   isSelected={settings.showHints}
                   onChange={(showHints) =>
@@ -233,9 +410,53 @@ export function GameMenu({
                     {OPTIONS.hints}
                   </Checkbox.Content>
                 </Checkbox>
+                <Checkbox
+                  isSelected={settings.notificationSound}
+                  onChange={(notificationSound) =>
+                    onChangeSettings({ ...settings, notificationSound })
+                  }
+                >
+                  <Checkbox.Content>
+                    <Checkbox.Control>
+                      <Checkbox.Indicator />
+                    </Checkbox.Control>
+                    {OPTIONS.sound}
+                  </Checkbox.Content>
+                </Checkbox>
+                {desktopSupported() && (
+                  <>
+                    <Checkbox
+                      isSelected={settings.desktopNotifications}
+                      onChange={onToggleDesktopNotifications}
+                    >
+                      <Checkbox.Content>
+                        <Checkbox.Control>
+                          <Checkbox.Indicator />
+                        </Checkbox.Control>
+                        {OPTIONS.desktop}
+                      </Checkbox.Content>
+                    </Checkbox>
+                    {desktopPermission() === "denied" && (
+                      <p className={styles.warning}>{OPTIONS.desktopBlocked}</p>
+                    )}
+                  </>
+                )}
               </Modal.Body>
               <Modal.Footer className={styles.actions}>{back}</Modal.Footer>
             </>
+          )}
+          {panel === "moderation" && moderation && (
+            <ErrorBoundary
+              fallback={<LoadFailed onClose={() => setPanel("main")} />}
+            >
+              <Suspense fallback={null}>
+                <ModerationPanel
+                  people={moderation.people}
+                  onAct={moderation.onAct}
+                  onBack={() => setPanel("main")}
+                />
+              </Suspense>
+            </ErrorBoundary>
           )}
         </Modal.Dialog>
       </Modal.Container>

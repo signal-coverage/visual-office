@@ -1,21 +1,24 @@
 import type { CSSProperties } from "react";
-import { PREVIEW_HEIGHT, PREVIEW_WIDTH } from "./consts";
 
 /** The frame stays the same size whether the preview could be drawn or not. */
-export const container: CSSProperties = {
+export const container = (width: number, height: number): CSSProperties => ({
   display: "grid",
   placeItems: "center",
-  width: PREVIEW_WIDTH,
-  height: PREVIEW_HEIGHT,
-  borderRadius: 12,
+  width,
+  height,
   overflow: "hidden",
-  background: "radial-gradient(circle at 50% 35%, #4a4f66, #23252f)",
+  color: "var(--muted)",
   fontSize: 13,
   textAlign: "center",
-};
+  touchAction: "none",
+  userSelect: "none",
+});
 
-export const canvas = {
-  width: `${PREVIEW_WIDTH}px`,
-  height: `${PREVIEW_HEIGHT}px`,
+export const canvas = (width: number, height: number): CSSProperties => ({
+  width: `${width}px`,
+  height: `${height}px`,
   display: "block",
-};
+});
+
+/** A hand shows the character can be held; it closes while it is. */
+export const draggable = "cursor-grab active:cursor-grabbing";

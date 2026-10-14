@@ -1,13 +1,9 @@
-import type { CSSProperties } from "react";
+import { cn } from "../../lib/cn";
 
-export const badge = (mine: boolean): CSSProperties => ({
-  position: "fixed",
-  top: 128,
-  left: 16,
-  padding: "6px 12px",
-  borderRadius: 8,
-  background: mine ? "rgba(200, 60, 60, 0.9)" : "rgba(40, 90, 160, 0.9)",
-  color: "#fff",
-  fontSize: 13,
-  pointerEvents: "none",
-});
+export const badge = (mine: boolean) =>
+  cn(
+    "pointer-events-none fixed left-4 top-32 rounded-xl px-3 py-1.5 text-[13px] font-medium backdrop-blur-md",
+    mine
+      ? "bg-danger/90 text-danger-foreground"
+      : "bg-accent/90 text-accent-foreground",
+  );

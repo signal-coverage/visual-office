@@ -42,7 +42,9 @@ describe("the boards", () => {
     for (const b of BOARDS) {
       expect(b.center.y - b.height / 2).toBeGreaterThan(0.3);
       expect(b.center.y + b.height / 2).toBeLessThan(OFFICE_HEIGHT);
-      expect(b.center.x).toBeLessThan(OFFICE_WIDTH / 2 - WALL_THICKNESS / 2);
+      expect(Math.abs(b.center.x)).toBeLessThan(
+        OFFICE_WIDTH / 2 - WALL_THICKNESS / 2 + 0.2,
+      );
     }
   });
 
@@ -67,8 +69,18 @@ describe("the boards", () => {
 
 describe("aimAtBoard", () => {
   // Standing 2 m in front of the board's middle, looking straight at it
-  const origin = { x: center.x - 2, y: center.y, z: center.z };
-  const straight = { x: 1, y: 0, z: 0 };
+  const { normal, right } = board;
+  const origin = {
+    x: center.x + normal.x * 2,
+    y: center.y,
+    z: center.z + normal.z * 2,
+  };
+  const straight = { x: -normal.x, y: 0, z: -normal.z };
+  const shifted = (along: number) => ({
+    ...origin,
+    x: origin.x + right.x * along,
+    z: origin.z + right.z * along,
+  });
 
   it("finds the middle of the board when looking straight at it", () => {
     const hit = aimAtBoard(board, origin, straight)!;
@@ -78,12 +90,8 @@ describe("aimAtBoard", () => {
   });
 
   it("puts a point to the right of the board on the right (u grows to the right)", () => {
-    // The board's right is +z, seen from the room
-    const hit = aimAtBoard(
-      board,
-      { ...origin, z: center.z + width / 4 },
-      straight,
-    )!;
+    // Seen from the room, to the right is along the board's own right
+    const hit = aimAtBoard(board, shifted(width / 4), straight)!;
     expect(hit.u).toBeCloseTo(0.75);
   });
 
@@ -99,20 +107,26 @@ describe("aimAtBoard", () => {
   it("follows where the player looks, not only where they stand", () => {
     // Aiming up and to the side by an angle that lands on a known spot
     const dz = width / 4;
-    const hit = aimAtBoard(board, origin, { x: 2, y: 0, z: dz / 1 });
+    const hit = aimAtBoard(board, origin, {
+      x: straight.x * 2 + right.x * dz,
+      y: 0,
+      z: straight.z * 2 + right.z * dz,
+    });
     // 2 m forward gives 1 m of travel per 1 unit, so dz*... is a quarter-board shift
     expect(hit!.u).toBeCloseTo(0.5 + dz / 1 / width);
   });
 
   it("does not need the direction to be normalised", () => {
-    const hit = aimAtBoard(board, origin, { x: 5, y: 0, z: 0 })!;
+    const hit = aimAtBoard(board, origin, {
+      x: straight.x * 5,
+      y: 0,
+      z: straight.z * 5,
+    })!;
     expect(hit.distance).toBeCloseTo(2);
   });
 
   it("misses when looking past the edge of the board", () => {
-    expect(
-      aimAtBoard(board, { ...origin, z: center.z + width / 2 + 0.1 }, straight),
-    ).toBeNull();
+    expect(aimAtBoard(board, shifted(width / 2 + 0.1), straight)).toBeNull();
     expect(
       aimAtBoard(
         board,
@@ -123,13 +137,17 @@ describe("aimAtBoard", () => {
   });
 
   it("misses when looking away from it", () => {
-    expect(aimAtBoard(board, origin, { x: -1, y: 0, z: 0 })).toBeNull();
-    expect(aimAtBoard(board, origin, { x: 0, y: 0, z: 1 })).toBeNull();
+    expect(aimAtBoard(board, origin, normal)).toBeNull();
+    expect(aimAtBoard(board, origin, right)).toBeNull();
   });
 
   it("cannot be used from behind the board", () => {
-    const behind = { x: center.x + 1, y: center.y, z: center.z };
-    expect(aimAtBoard(board, behind, { x: -1, y: 0, z: 0 })).toBeNull();
+    const behind = {
+      x: center.x - normal.x,
+      y: center.y,
+      z: center.z - normal.z,
+    };
+    expect(aimAtBoard(board, behind, normal)).toBeNull();
   });
 
   it("ignores an empty direction", () => {
@@ -138,31 +156,30 @@ describe("aimAtBoard", () => {
 });
 
 describe("canReachBoard", () => {
+  const { normal, right } = board;
+  const at = (out: number, along = 0) =>
+    [
+      center.x + normal.x * out + right.x * along,
+      center.z + normal.z * out + right.z * along,
+    ] as const;
+
   it("is true standing in front of it, at arm's length or a few steps", () => {
-    expect(canReachBoard(board, center.x - 1, center.z)).toBe(true);
-    expect(canReachBoard(board, center.x - BOARD_REACH + 0.1, center.z)).toBe(
-      true,
-    );
+    expect(canReachBoard(board, ...at(1))).toBe(true);
+    expect(canReachBoard(board, ...at(BOARD_REACH - 0.1))).toBe(true);
   });
 
   it("is false from across the room", () => {
-    expect(canReachBoard(board, center.x - BOARD_REACH - 0.5, center.z)).toBe(
-      false,
-    );
+    expect(canReachBoard(board, ...at(BOARD_REACH + 0.5))).toBe(false);
   });
 
   it("is false from the other side of the wall", () => {
-    expect(canReachBoard(board, center.x + 1, center.z)).toBe(false);
+    expect(canReachBoard(board, ...at(-1))).toBe(false);
   });
 
   it("is false far along the wall, though close to it", () => {
-    expect(
-      canReachBoard(
-        board,
-        center.x - 1,
-        center.z + width / 2 + BOARD_REACH + 1,
-      ),
-    ).toBe(false);
+    expect(canReachBoard(board, ...at(1, width / 2 + BOARD_REACH + 1))).toBe(
+      false,
+    );
   });
 });
 

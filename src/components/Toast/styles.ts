@@ -1,16 +1,5 @@
-import type { CSSProperties } from "react";
+const base =
+  "glass pointer-events-none fixed left-1/2 max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 px-4 py-2 text-center text-sm";
 
-export const toast: CSSProperties = {
-  position: "fixed",
-  top: 96,
-  left: "50%",
-  transform: "translateX(-50%)",
-  maxWidth: "min(560px, calc(100vw - 32px))",
-  padding: "8px 14px",
-  borderRadius: 8,
-  background: "rgba(0, 0, 0, 0.8)",
-  color: "#fff",
-  fontSize: 14,
-  textAlign: "center",
-  pointerEvents: "none",
-};
+export const toast = `${base} top-24`;
+export const alert = `${base} top-40 border-accent/60`;

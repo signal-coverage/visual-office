@@ -50,6 +50,7 @@ export function DebugOverlay({ read }: DebugOverlayProps) {
         label="Draw calls"
         value={`${stats.drawCalls} · ${stats.triangles} tris`}
       />
+      <Row label="Quality" value={stats.quality} />
       <Row label="GPU" value={stats.gpu} />
       {stats.softwareRendering && (
         <div style={styles.warning}>{SOFTWARE_WARNING}</div>

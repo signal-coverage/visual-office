@@ -1,9 +1,17 @@
+import { sanitizeQuality, type QualityChoice } from "../game/quality";
+
 /** What a player can set in the menu. Kept on this browser: it is about how their computer feels, not who they are. */
 export interface Settings {
   /** How fast the view turns with the mouse, as a multiple of the usual speed. */
   mouseSensitivity: number;
   /** Whether the bar with the keys is shown at the bottom. */
   showHints: boolean;
+  /** Whether a short beep goes with a direct message or a knock (unless the player asked not to be disturbed). */
+  notificationSound: boolean;
+  /** Whether the browser's own notification says so when a direct message arrives while the tab is hidden. */
+  desktopNotifications: boolean;
+  /** How much detail the office is drawn with: auto picks by how well the computer keeps up. */
+  quality: QualityChoice;
 }
 
 export const MIN_SENSITIVITY = 0.4;
@@ -12,6 +20,9 @@ export const MAX_SENSITIVITY = 2.5;
 export const DEFAULT_SETTINGS: Settings = {
   mouseSensitivity: 1,
   showHints: true,
+  notificationSound: true,
+  desktopNotifications: false,
+  quality: "auto",
 };
 
 export const SETTINGS_STORAGE_KEY = "visual-office:settings";
@@ -22,7 +33,13 @@ export function sanitizeSettings(raw: unknown): Settings {
     typeof raw === "object" && raw !== null && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const { mouseSensitivity, showHints } = source;
+  const {
+    mouseSensitivity,
+    showHints,
+    notificationSound,
+    desktopNotifications,
+    quality,
+  } = source;
   return {
     mouseSensitivity:
       typeof mouseSensitivity === "number" && Number.isFinite(mouseSensitivity)
@@ -30,6 +47,15 @@ export function sanitizeSettings(raw: unknown): Settings {
         : DEFAULT_SETTINGS.mouseSensitivity,
     showHints:
       typeof showHints === "boolean" ? showHints : DEFAULT_SETTINGS.showHints,
+    notificationSound:
+      typeof notificationSound === "boolean"
+        ? notificationSound
+        : DEFAULT_SETTINGS.notificationSound,
+    desktopNotifications:
+      typeof desktopNotifications === "boolean"
+        ? desktopNotifications
+        : DEFAULT_SETTINGS.desktopNotifications,
+    quality: sanitizeQuality(quality),
   };
 }
 

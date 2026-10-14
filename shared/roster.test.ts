@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Status } from "./presence.ts";
 import { buildRoster, type RosterEntry } from "./roster.ts";
 
 const player = (
@@ -6,7 +7,8 @@ const player = (
   name: string,
   zone: string | null = null,
   color = 0,
-): RosterEntry => ({ id, name, zone, color });
+  status: Status = "available",
+): RosterEntry => ({ id, name, zone, color, status });
 
 describe("buildRoster, in the open office", () => {
   const players = [
@@ -42,6 +44,20 @@ describe("buildRoster, in the open office", () => {
     expect(roster.entries.map((e) => [e.name, e.color])).toEqual([
       ["Ana", 4],
       ["Beto", 7],
+    ]);
+  });
+
+  it("shows what each person is doing", () => {
+    const roster = buildRoster(
+      [
+        player("a", "Ana", null, 0, "dnd"),
+        player("b", "Beto", null, 1, "away"),
+      ],
+      "a",
+    );
+    expect(roster.entries.map((e) => [e.name, e.status])).toEqual([
+      ["Ana", "dnd"],
+      ["Beto", "away"],
     ]);
   });
 

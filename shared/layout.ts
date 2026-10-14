@@ -23,8 +23,8 @@ import {
  * The office as plain data. The client draws it and the server uses the same
  * pieces for collisions, so what you can walk through is decided in one place.
  *
- * It has two parts: the shell (outer walls, the meeting room's divider and
- * door, the frames of the whiteboard and the screen), which is fixed here
+ * It has two parts: the shell (outer walls, the meeting room's glass walls and
+ * door, the floors of the rooms, the frames of the whiteboard and the screen), which is fixed here
  * because zones, boards and screens depend on it, and everything that stands
  * inside (officeData.ts), which the office editor moves around.
  * (When the office becomes a modelled GLB, only the drawing changes: this file
@@ -44,17 +44,24 @@ const DEPTH = OFFICE_DEPTH;
 const HEIGHT = OFFICE_HEIGHT;
 const WALL = WALL_THICKNESS;
 
-const DIVIDER_X = 5.5;
-const DIVIDER_THICKNESS = 0.2;
-const DOOR_HALF_WIDTH = 1.5;
-const MEETING_CENTER = { x: 8, z: 0 };
+/** The glass walls of the meeting room, which sits in the north-west corner. */
+const GLASS_THICKNESS = 0.15;
+const GLASS_OPACITY = 0.35;
+/** The room's floor, in the order of its corners: x from the west wall to its east glass wall. */
+const MEETING_EAST_X = -6;
+/** And from the north wall to its south glass wall. */
+const MEETING_SOUTH_Z = -2;
+const MEETING_CENTER = { x: -10.5, z: -6 };
 
-/** The floor of the meeting room: from the divider to the walls around it. */
+/**
+ * The floor of the meeting room: inside its glass walls and the outer walls.
+ * Its south-east corner has no wall for 3 m along each glass wall: that is the door.
+ */
 export const MEETING_ROOM: Box = {
-  minX: DIVIDER_X + DIVIDER_THICKNESS / 2,
-  maxX: WIDTH / 2 - WALL / 2,
+  minX: -WIDTH / 2 + WALL / 2,
+  maxX: MEETING_EAST_X - GLASS_THICKNESS / 2,
   minZ: -DEPTH / 2 + WALL / 2,
-  maxZ: DEPTH / 2 - WALL / 2,
+  maxZ: MEETING_SOUTH_Z - GLASS_THICKNESS / 2,
 };
 
 /** The floor inside the outer walls: the furniture has to stay within it. */
@@ -78,9 +85,15 @@ const add = (
     solid = true,
     emissive,
     shadows = true,
-  }: { solid?: boolean; emissive?: number; shadows?: boolean } = {},
+    opacity,
+  }: {
+    solid?: boolean;
+    emissive?: number;
+    shadows?: boolean;
+    opacity?: number;
+  } = {},
 ) => {
-  into.push({ size, at, color, solid, emissive, shadows });
+  into.push({ size, at, color, solid, emissive, shadows, opacity });
 };
 
 // Outer walls
@@ -109,26 +122,32 @@ add(
   COLORS.wall,
 );
 
-// Meeting room: a divider with a door gap
-const dividerLength = DEPTH / 2 - DOOR_HALF_WIDTH;
-const dividerCenter = DOOR_HALF_WIDTH + dividerLength / 2;
+// Meeting room: two glass walls, each stopping 3 m short of the other's end
+const glass = { opacity: GLASS_OPACITY };
 add(
   shellPieces,
-  [DIVIDER_THICKNESS, HEIGHT, dividerLength],
-  [DIVIDER_X, HEIGHT / 2, -dividerCenter],
-  COLORS.divider,
+  [GLASS_THICKNESS, HEIGHT, 5],
+  [MEETING_EAST_X, HEIGHT / 2, -7.5],
+  COLORS.glass,
+  glass,
 );
 add(
   shellPieces,
-  [DIVIDER_THICKNESS, HEIGHT, dividerLength],
-  [DIVIDER_X, HEIGHT / 2, dividerCenter],
-  COLORS.divider,
+  [6, HEIGHT, GLASS_THICKNESS],
+  [-12, HEIGHT / 2, MEETING_SOUTH_Z],
+  COLORS.glass,
+  glass,
 );
+
+// What the floor is made of in the two rooms that have their own
+const flat = { solid: false, shadows: false };
+add(shellPieces, [8, 0.02, 7], [-10.5, 0.011, -6], COLORS.meetingFloor, flat);
+add(shellPieces, [8, 0.02, 6], [10.5, 0.011, 6.5], COLORS.loungeFloor, flat);
 
 const { x: mx, z: mz } = MEETING_CENTER;
 
-// The whiteboard on the east wall: a frame and a white panel
-const boardX = WIDTH / 2 - WALL / 2 - 0.03;
+// The whiteboard on the west wall: a frame and a white panel
+const boardX = -WIDTH / 2 + WALL / 2 + 0.03;
 add(shellPieces, [0.04, 1.5, 2.8], [boardX, 1.6, mz], COLORS.frame, {
   solid: false,
   shadows: false,
@@ -136,7 +155,7 @@ add(shellPieces, [0.04, 1.5, 2.8], [boardX, 1.6, mz], COLORS.frame, {
 add(
   shellPieces,
   [0.05, 1.3, 2.6],
-  [boardX - 0.01, 1.6, mz],
+  [boardX + 0.01, 1.6, mz],
   COLORS.whiteboard,
   { solid: false, shadows: false },
 );
@@ -162,7 +181,7 @@ export const MEETING_SCREEN = {
  * its white panel, which is 2.6 m wide and 1.3 m high, centred at `y`.
  */
 export const WHITEBOARD = {
-  x: boardX - 0.01 - 0.025 - 0.004,
+  x: boardX + 0.01 + 0.025 + 0.004,
   y: 1.6,
   z: mz,
   width: 2.6,
@@ -211,7 +230,7 @@ export function sceneFor(layout: Layout): FloorScene {
   };
 }
 
-/** What the walls and the divider block, with nothing inside the office. */
+/** What the walls and the glass block, with nothing inside the office. */
 export const SHELL_COLLIDERS: Box[] = shellPieces
   .filter((piece) => piece.solid)
   .map((piece) => ({

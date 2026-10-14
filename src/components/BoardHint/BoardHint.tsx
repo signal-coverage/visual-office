@@ -7,8 +7,8 @@ export function BoardHint({ ink }: BoardHintProps) {
   if (ink === null) return null;
 
   return (
-    <div style={styles.bar} role="status">
-      <div style={styles.pens}>
+    <div className={styles.bar} role="status">
+      <div className={styles.pens}>
         {INKS.map((option, index) => (
           <span
             key={option.name}

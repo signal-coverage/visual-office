@@ -1,50 +1,14 @@
 import type { CSSProperties } from "react";
 import { chatColor } from "../../../shared/chatColor.ts";
 
-export const panel: CSSProperties = {
-  position: "fixed",
-  top: 16,
-  right: 16,
-  minWidth: 160,
-  maxWidth: 240,
-  maxHeight: "40vh",
-  overflowY: "auto",
-  padding: "8px 12px",
-  borderRadius: 8,
-  background: "rgba(0, 0, 0, 0.55)",
-  color: "#fff",
-  fontSize: 13,
-  pointerEvents: "none",
-};
-
-export const title: CSSProperties = {
-  marginBottom: 4,
-  fontSize: 12,
-  opacity: 0.75,
-};
-
-export const list: CSSProperties = {
-  margin: 0,
-  padding: 0,
-  listStyle: "none",
-};
-
-export const row: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 8,
-  padding: "1px 0",
-};
-
+export const panel =
+  "glass pointer-events-none fixed right-4 top-16 max-h-[40vh] min-w-40 max-w-60 overflow-y-auto px-3 py-2 text-[13px]";
+export const title = "mb-1 text-xs opacity-75";
+export const list = "m-0 list-none p-0";
+export const row = "flex justify-between gap-2 py-px";
 export const name = (color: number): CSSProperties => ({
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
   color: chatColor(color),
 });
-
-export const place: CSSProperties = {
-  flexShrink: 0,
-  fontSize: 11,
-  opacity: 0.7,
-};
+export const person = "flex min-w-0 items-center gap-1.5";
+export const nameClass = "min-w-0 truncate";
+export const place = "shrink-0 text-[11px] opacity-70";

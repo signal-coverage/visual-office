@@ -16,6 +16,8 @@ export const Player = schema(
     chatColor: t.uint8(),
     /** The id of the private zone they are in, or "" for the open office. */
     zone: t.string(),
+    /** What they are doing, as everybody sees it: one of the statuses of presence.ts. */
+    status: t.string(),
   },
   "Player",
 );

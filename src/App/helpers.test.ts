@@ -9,12 +9,23 @@ import {
   FLOOR_CLOSED_CODE,
   FLOOR_CLOSED_MESSAGE,
 } from "../../shared/floors.ts";
+import {
+  BANNED_CODE,
+  BANNED_MESSAGE,
+  KICKED_CODE,
+  KICKED_MESSAGE,
+} from "../../shared/moderation.ts";
 import { CONNECTION_LOST_MESSAGE, UNREACHABLE_MESSAGE } from "./consts";
 import { messageForDisconnect, messageForJoinError } from "./helpers";
 
 describe("messageForDisconnect", () => {
   it("says the floor was closed for editing when that is why", () => {
     expect(messageForDisconnect(FLOOR_CLOSED_CODE)).toBe(FLOOR_CLOSED_MESSAGE);
+  });
+
+  it("says a moderator removed you, instead of a lost connection", () => {
+    expect(messageForDisconnect(KICKED_CODE)).toBe(KICKED_MESSAGE);
+    expect(messageForDisconnect(BANNED_CODE)).toBe(BANNED_MESSAGE);
   });
 
   it("says the connection was lost for any other reason", () => {
@@ -45,6 +56,11 @@ describe("messageForJoinError", () => {
         messageForAuthCode(code),
       );
     }
+  });
+
+  it("says a moderator's ban is why somebody was not let in", () => {
+    const refused = Object.assign(new Error("banned"), { code: BANNED_CODE });
+    expect(messageForJoinError(refused)).toBe(BANNED_MESSAGE);
   });
 
   it("says the server could not be reached for anything else", () => {

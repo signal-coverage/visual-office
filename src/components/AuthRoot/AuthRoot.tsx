@@ -9,13 +9,16 @@ import {
 } from "@clerk/react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { FLOOR_ID } from "../../../shared/floors.ts";
-import { App } from "../../App";
+import { AppEntry } from "../../App";
 import { fetchAccess, type Access } from "../../editor/access";
 import { gameBackend } from "../../editor/backend";
 import { currentServerUrl } from "../../game/serverAddress";
 import { AccountGate, type Member } from "../AccountGate";
+import { ErrorBoundary } from "../ErrorBoundary";
 import { GameEditor } from "../GameEditor";
+import { LoadFailed } from "../LoadFailed";
 import {
+  CLERK_APPEARANCE,
   INVITE_ONLY_NOTE,
   LOADING_TEXT,
   PUBLISHABLE_KEY,
@@ -30,6 +33,19 @@ import * as styles from "./styles";
 const InvitePeople = lazy(() =>
   import("../InvitePeople").then((module) => ({
     default: module.InvitePeople,
+  })),
+);
+const CompanySettings = lazy(() =>
+  import("../CompanySettings").then((module) => ({
+    default: module.CompanySettings,
+  })),
+);
+const ActivityLog = lazy(() =>
+  import("../ActivityLog").then((module) => ({ default: module.ActivityLog })),
+);
+const CalendarsAdmin = lazy(() =>
+  import("../CalendarsAdmin").then((module) => ({
+    default: module.CalendarsAdmin,
   })),
 );
 const PeopleAdmin = lazy(() =>
@@ -50,6 +66,9 @@ function MemberApp({ member }: { member: Member }) {
   const [editing, setEditing] = useState(false);
   const [managing, setManaging] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [calendarsOpen, setCalendarsOpen] = useState(false);
 
   // Asked once for each person: it only decides which buttons to show
   const userId = member.user.id;
@@ -72,9 +91,10 @@ function MemberApp({ member }: { member: Member }) {
 
   return (
     <>
-      <App
+      <AppEntry
         signedIn={{
           displayName: member.user.name,
+          canEditName: member.canEditName,
           getToken,
           appearance: member.appearance,
           signOut: () => void signOut(),
@@ -86,23 +106,83 @@ function MemberApp({ member }: { member: Member }) {
           onInvitePeople: member.user.isAdmin
             ? () => setInviting(true)
             : undefined,
+          onOpenSettings: member.user.isAdmin
+            ? () => setSettingsOpen(true)
+            : undefined,
+          onOpenActivity: member.user.isAdmin
+            ? () => setActivityOpen(true)
+            : undefined,
+          onOpenCalendars: member.user.isAdmin
+            ? () => setCalendarsOpen(true)
+            : undefined,
         }}
       />
       {managing && (
-        <Suspense fallback={null}>
-          <PeopleAdmin getToken={getToken} onClose={() => setManaging(false)} />
-        </Suspense>
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setManaging(false)} />}
+        >
+          <Suspense fallback={null}>
+            <PeopleAdmin
+              getToken={getToken}
+              onClose={() => setManaging(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
       {inviting && (
-        <Suspense fallback={null}>
-          <InvitePeople
-            organizationId={member.organizationId}
-            onClose={() => setInviting(false)}
-          />
-        </Suspense>
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setInviting(false)} />}
+        >
+          <Suspense fallback={null}>
+            <InvitePeople
+              organizationId={member.organizationId}
+              onClose={() => setInviting(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {settingsOpen && (
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setSettingsOpen(false)} />}
+        >
+          <Suspense fallback={null}>
+            <CompanySettings
+              getToken={getToken}
+              onClose={() => setSettingsOpen(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {activityOpen && (
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setActivityOpen(false)} />}
+        >
+          <Suspense fallback={null}>
+            <ActivityLog
+              getToken={getToken}
+              onClose={() => setActivityOpen(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {calendarsOpen && (
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setCalendarsOpen(false)} />}
+        >
+          <Suspense fallback={null}>
+            <CalendarsAdmin
+              getToken={getToken}
+              onClose={() => setCalendarsOpen(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
       {editing && (
-        <GameEditor getToken={getToken} onClose={() => setEditing(false)} />
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setEditing(false)} />}
+        >
+          <GameEditor getToken={getToken} onClose={() => setEditing(false)} />
+        </ErrorBoundary>
       )}
     </>
   );
@@ -116,10 +196,11 @@ function MemberApp({ member }: { member: Member }) {
 export function AuthRoot() {
   // Creating an account happens on this page too: from a link asking for it, or from an invitation
   const [signingUp] = useState(() => wantsSignUp(window.location.search));
-  if (!PUBLISHABLE_KEY) return <App />;
+  if (!PUBLISHABLE_KEY) return <AppEntry />;
   return (
     // Everything Clerk would redirect to stays on this page: its own pages would be a second login
     <ClerkProvider
+      appearance={CLERK_APPEARANCE}
       publishableKey={PUBLISHABLE_KEY}
       signInUrl="/"
       signUpUrl="/?mode=sign-up"
@@ -127,12 +208,12 @@ export function AuthRoot() {
       signUpFallbackRedirectUrl="/"
     >
       <ClerkLoading>
-        <div style={styles.backdrop}>{LOADING_TEXT}</div>
+        <div className={styles.backdrop}>{LOADING_TEXT}</div>
       </ClerkLoading>
       <Show when="signed-out">
-        <div style={styles.backdrop}>
-          <h1 style={styles.title}>{SIGN_IN_TITLE}</h1>
-          <p style={styles.subtitle}>
+        <div className={styles.backdrop}>
+          <h1 className={styles.title}>{SIGN_IN_TITLE}</h1>
+          <p className={styles.subtitle}>
             {signingUp ? SIGN_UP_SUBTITLE : SIGN_IN_SUBTITLE}
           </p>
           {signingUp ? (
@@ -140,7 +221,7 @@ export function AuthRoot() {
           ) : (
             <SignIn routing="hash" signUpUrl="/?mode=sign-up" />
           )}
-          <p style={styles.note}>{INVITE_ONLY_NOTE}</p>
+          <p className={styles.note}>{INVITE_ONLY_NOTE}</p>
         </div>
       </Show>
       <Show when="signed-in">

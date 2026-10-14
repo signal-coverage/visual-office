@@ -6,7 +6,7 @@ export function ScreenShareBadge({ info }: ScreenShareBadgeProps) {
   if (info.kind === "none") return null;
 
   return (
-    <div style={styles.badge(info.kind === "local")} role="status">
+    <div className={styles.badge(info.kind === "local")} role="status">
       {info.kind === "local" ? SHARING_MINE : sharingBy(info.name)}
     </div>
   );

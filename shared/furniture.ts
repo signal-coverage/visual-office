@@ -96,6 +96,66 @@ export const CATALOG = {
       },
     ],
   },
+  "conference-table": {
+    label: "Conference table",
+    pieces: () => [
+      {
+        size: [4, 0.75, 1.6],
+        at: [0, 0.375, 0],
+        color: COLORS.meetingTable,
+        solid: true,
+        shadows: true,
+      },
+    ],
+  },
+  counter: {
+    label: "Kitchen counter",
+    pieces: () => [
+      {
+        size: [8, 0.95, 1],
+        at: [0, 0.475, 0],
+        color: COLORS.counter,
+        solid: true,
+        shadows: true,
+      },
+    ],
+  },
+  island: {
+    label: "Kitchen island",
+    pieces: () => [
+      {
+        size: [2.4, 0.95, 1.2],
+        at: [0, 0.475, 0],
+        color: COLORS.island,
+        solid: true,
+        shadows: true,
+      },
+    ],
+  },
+  sofa: {
+    label: "Sofa",
+    pieces: () => [
+      {
+        size: [3.5, 0.45, 1],
+        at: [0, 0.225, 0],
+        color: COLORS.sofa,
+        solid: true,
+        shadows: true,
+      },
+    ],
+  },
+  "reception-desk": {
+    label: "Reception desk",
+    pieces: () => [
+      {
+        size: [3, 1.05, 1],
+        at: [0, 0.525, 0],
+        color: COLORS.receptionDesk,
+        solid: true,
+        shadows: true,
+      },
+    ],
+  },
   rug: {
     label: "Rug",
     flat: true,

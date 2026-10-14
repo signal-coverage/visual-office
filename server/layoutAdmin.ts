@@ -2,6 +2,7 @@ import { sanitizeFurniture } from "../shared/furniture.ts";
 import { findProblems } from "../shared/officeProblems.ts";
 import { sanitizeModels } from "../shared/props.ts";
 import { canEditFloor, identityOf } from "./actor.ts";
+import { auditActor, type AuditRecorder } from "./audit.ts";
 import type { AdminReply, AdminRequest } from "./floorAdmin.ts";
 import type { FloorLockStore } from "./floorLocks.ts";
 import type { Layout, LayoutStore } from "./layoutStore.ts";
@@ -21,6 +22,8 @@ export interface LayoutAdminDeps {
   knownFloors: readonly string[];
   /** A new version of a floor's layout was stored: the rooms running it may need to know. */
   onPublished?: (floor: string, version: number) => void;
+  /** Where publishing, going back and vouching are noted: who did it. */
+  audit?: AuditRecorder;
 }
 
 function record(body: unknown): Record<string, unknown> | null {
@@ -146,16 +149,23 @@ async function route(
     const { refusal, problems } = problemsRefusal({ furniture, models }, body);
     if (refusal) return refusal;
     const stored = await store(deps, floor, { furniture, models }, author);
+    const dropped =
+      body.furniture.length -
+      furniture.length +
+      (body.models.length - models.length);
+    await deps.audit?.({
+      ...auditActor(actor),
+      action: "layout.publish",
+      floor,
+      detail: {
+        version: stored.version,
+        dropped,
+        problems: problems.length,
+      },
+    });
     return {
       status: 200,
-      body: {
-        version: stored.version,
-        dropped:
-          body.furniture.length -
-          furniture.length +
-          (body.models.length - models.length),
-        problems,
-      },
+      body: { version: stored.version, dropped, problems },
     };
   }
 
@@ -168,9 +178,15 @@ async function route(
       if (!author) return bad(AUTHOR_ERROR);
       const version =
         rest !== undefined && VERSION.test(rest) ? Number(rest) : 0;
-      return version > 0 && (await layouts.mark(floor, version, author))
-        ? { status: 200, body: { version, good: true } }
-        : notFound("No such version.");
+      if (!(version > 0 && (await layouts.mark(floor, version, author))))
+        return notFound("No such version.");
+      await deps.audit?.({
+        ...auditActor(actor),
+        action: "layout.mark",
+        floor,
+        detail: { version },
+      });
+      return { status: 200, body: { version, good: true } };
     }
     if (request.method !== "GET") return wrongMethod("GET");
     if (rest === undefined)
@@ -219,6 +235,12 @@ async function route(
     { furniture: earlier.furniture, models: earlier.models },
     author,
   );
+  await deps.audit?.({
+    ...auditActor(actor),
+    action: "layout.revert",
+    floor,
+    detail: { version: stored.version, revertedTo: earlier.version },
+  });
   return {
     status: 200,
     body: { version: stored.version, revertedTo: earlier.version },

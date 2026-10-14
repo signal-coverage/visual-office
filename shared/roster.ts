@@ -1,3 +1,4 @@
+import type { Status } from "./presence.ts";
 import { zoneLabel } from "./zones.ts";
 
 /** One player as the list needs to know them. */
@@ -8,6 +9,8 @@ export interface RosterEntry {
   zone: string | null;
   /** Their chat colour (an index, see chatColor.ts). */
   color: number;
+  /** What they are doing, as everybody sees it. */
+  status: Status;
 }
 
 export interface RosterRow {
@@ -15,6 +18,7 @@ export interface RosterRow {
   name: string;
   color: number;
   you: boolean;
+  status: Status;
   /** Where they are, when that is a private zone and the list is not already about it. */
   place: string | null;
 }
@@ -43,6 +47,7 @@ export function buildRoster(players: RosterEntry[], selfId: string): Roster {
       name: p.name,
       color: p.color,
       you: p.id === selfId,
+      status: p.status,
       place: !myZone && p.zone ? zoneLabel(p.zone) : null,
     }))
     .sort((a, b) => {

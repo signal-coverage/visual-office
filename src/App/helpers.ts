@@ -7,6 +7,7 @@ import {
   FLOOR_CLOSED_CODE,
   FLOOR_CLOSED_MESSAGE,
 } from "../../shared/floors.ts";
+import { messageForModerationCode } from "../../shared/moderation.ts";
 import {
   APPEARANCE_STORAGE_KEY,
   CONNECTION_LOST_MESSAGE,
@@ -18,7 +19,7 @@ import {
 export function messageForDisconnect(code: number): string {
   return code === FLOOR_CLOSED_CODE
     ? FLOOR_CLOSED_MESSAGE
-    : CONNECTION_LOST_MESSAGE;
+    : (messageForModerationCode(code) ?? CONNECTION_LOST_MESSAGE);
 }
 
 /** Why joining failed: the floor is closed for editing, or the server cannot be reached. */
@@ -29,8 +30,9 @@ export function messageForJoinError(error: unknown): string {
       : undefined;
   if (code === FLOOR_CLOSED_CODE) return FLOOR_CLOSED_MESSAGE;
   return (
-    (typeof code === "number" ? messageForAuthCode(code) : null) ??
-    UNREACHABLE_MESSAGE
+    (typeof code === "number"
+      ? (messageForAuthCode(code) ?? messageForModerationCode(code))
+      : null) ?? UNREACHABLE_MESSAGE
   );
 }
 
