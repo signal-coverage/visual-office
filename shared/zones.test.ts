@@ -47,35 +47,38 @@ describe("zoneLabel", () => {
 });
 
 describe("zoneAt", () => {
-  it("finds the meeting room around its table, and nothing in the open plan", () => {
-    expect(zoneAt(8, 0, null)).toBe("meeting");
-    expect(zoneAt(-8, 0, null)).toBeNull();
+  it("finds the meeting room around its table, and nothing in the rest of the office", () => {
+    expect(zoneAt(-10.5, -6, null)).toBe("meeting");
     expect(zoneAt(0, 3, null)).toBeNull();
+    expect(zoneAt(10.5, -6, null)).toBeNull();
+    expect(zoneAt(-10.5, 6, null)).toBeNull();
   });
 
-  it("does not confuse the open plan with the room when standing at the door", () => {
-    // The door gap sits in the divider itself: neither side yet
-    expect(zoneAt(5.5, 0, null)).toBeNull();
-    expect(zoneAt(5.5, 0, "meeting")).toBe("meeting");
+  it("does not confuse the rest of the office with the room when standing at the door", () => {
+    // The door is the open corner of the room, in line with its glass walls: neither side yet
+    expect(zoneAt(-6, -3.5, null)).toBeNull();
+    expect(zoneAt(-6, -3.5, "meeting")).toBe("meeting");
+    expect(zoneAt(-7.5, -2, null)).toBeNull();
+    expect(zoneAt(-7.5, -2, "meeting")).toBe("meeting");
   });
 
   it("needs a few steps inside to enter, and a few outside to leave", () => {
-    const enter = meeting.minX + ZONE_MARGIN;
-    expect(zoneAt(enter - 0.05, 0, null)).toBeNull();
-    expect(zoneAt(enter + 0.05, 0, null)).toBe("meeting");
+    const enter = meeting.maxX - ZONE_MARGIN;
+    expect(zoneAt(enter + 0.05, -8, null)).toBeNull();
+    expect(zoneAt(enter - 0.05, -8, null)).toBe("meeting");
 
-    const leave = meeting.minX - ZONE_MARGIN;
-    expect(zoneAt(leave + 0.05, 0, "meeting")).toBe("meeting");
-    expect(zoneAt(leave - 0.05, 0, "meeting")).toBeNull();
+    const leave = meeting.maxX + ZONE_MARGIN;
+    expect(zoneAt(leave - 0.05, -8, "meeting")).toBe("meeting");
+    expect(zoneAt(leave + 0.05, -8, "meeting")).toBeNull();
   });
 
   it("does not flicker when the position jitters around the doorway", () => {
-    const edge = meeting.minX + ZONE_MARGIN;
+    const edge = meeting.maxX - ZONE_MARGIN;
     let zone: ReturnType<typeof zoneAt> = null;
     let changes = 0;
     for (let i = 0; i < 200; i++) {
       const jitter = Math.sin(i * 1.7) * 0.2;
-      const next = zoneAt(edge + jitter, 0, zone);
+      const next = zoneAt(edge + jitter, -8, zone);
       if (next !== zone) changes++;
       zone = next;
     }
@@ -83,39 +86,57 @@ describe("zoneAt", () => {
     expect(changes).toBeLessThanOrEqual(1);
   });
 
-  it("puts a player pressed against either side of the divider in the right place", () => {
-    // Walk into the real divider from both sides: this is as close as anybody can get
-    for (const z of [-5, 5]) {
-      const fromOutside = moveWithCollisions(
-        { x: 0, z },
-        { x: 8, z: 0 },
+  it("puts a player pressed against either side of a glass wall in the right place", () => {
+    // Walk into the real glass walls from both sides: this is as close as anybody can get
+    const east = {
+      outside: moveWithCollisions(
+        { x: -3, z: -8 },
+        { x: -9, z: 0 },
         OFFICE_COLLIDERS,
         PLAYER_RADIUS,
-      );
-      const fromInside = moveWithCollisions(
-        { x: 8, z },
-        { x: -5, z: 0 },
+      ),
+      inside: moveWithCollisions(
+        { x: -9, z: -8 },
+        { x: 9, z: 0 },
         OFFICE_COLLIDERS,
         PLAYER_RADIUS,
-      );
-      // They really are stopped by the wall, on opposite sides of it
-      expect(fromOutside.x).toBeLessThan(5.5);
-      expect(fromInside.x).toBeGreaterThan(5.5);
+      ),
+    };
+    const south = {
+      outside: moveWithCollisions(
+        { x: -14, z: 1 },
+        { x: 0, z: -7 },
+        OFFICE_COLLIDERS,
+        PLAYER_RADIUS,
+      ),
+      inside: moveWithCollisions(
+        { x: -14, z: -8 },
+        { x: 0, z: 7 },
+        OFFICE_COLLIDERS,
+        PLAYER_RADIUS,
+      ),
+    };
+    // They really are stopped by the wall, on opposite sides of it
+    expect(east.outside.x).toBeGreaterThan(-6);
+    expect(east.inside.x).toBeLessThan(-6);
+    expect(south.outside.z).toBeGreaterThan(-2);
+    expect(south.inside.z).toBeLessThan(-2);
 
-      // Never inside from the open plan side, even when they were inside a moment ago...
-      expect(zoneAt(fromOutside.x, fromOutside.z, null)).toBeNull();
-      expect(zoneAt(fromOutside.x, fromOutside.z, "meeting")).toBeNull();
+    for (const { outside, inside } of [east, south]) {
+      // Never inside from the outside, even when they were inside a moment ago...
+      expect(zoneAt(outside.x, outside.z, null)).toBeNull();
+      expect(zoneAt(outside.x, outside.z, "meeting")).toBeNull();
       // ...and always inside on the other side of the very same wall
-      expect(zoneAt(fromInside.x, fromInside.z, null)).toBe("meeting");
+      expect(zoneAt(inside.x, inside.z, null)).toBe("meeting");
     }
   });
 
   it("keeps a player standing against the far walls of the room inside it", () => {
-    const eastWall = meeting.maxX - PLAYER_RADIUS;
+    const westWall = meeting.minX + PLAYER_RADIUS;
     const northWall = meeting.minZ + PLAYER_RADIUS;
     const southWall = meeting.maxZ - PLAYER_RADIUS;
-    expect(zoneAt(eastWall, 0, null)).toBe("meeting");
-    expect(zoneAt(8, northWall, null)).toBe("meeting");
-    expect(zoneAt(8, southWall, null)).toBe("meeting");
+    expect(zoneAt(westWall, -8, null)).toBe("meeting");
+    expect(zoneAt(-14, northWall, null)).toBe("meeting");
+    expect(zoneAt(-14, southWall, null)).toBe("meeting");
   });
 });

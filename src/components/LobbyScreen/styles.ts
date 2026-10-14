@@ -1,94 +1,20 @@
-import type { CSSProperties } from "react";
-
-export const backdrop: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  display: "grid",
-  placeItems: "center",
-  padding: 16,
-  background: "rgba(12, 13, 18, 0.72)",
-  backdropFilter: "blur(6px)",
-  color: "#fff",
-};
-
-export const card: CSSProperties = {
-  width: "min(420px, 100%)",
-  boxSizing: "border-box",
-  padding: 28,
-  borderRadius: 16,
-  background: "rgba(30, 32, 42, 0.96)",
-  boxShadow: "0 20px 60px rgba(0, 0, 0, 0.5)",
-};
-
-export const title: CSSProperties = {
-  margin: 0,
-  fontSize: 28,
-  fontWeight: 600,
-};
-
-export const subtitle: CSSProperties = {
-  margin: "6px 0 22px",
-  opacity: 0.75,
-  fontSize: 14,
-};
-
-export const form: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-
-export const label: CSSProperties = { fontSize: 13, opacity: 0.8 };
-
-export const input: CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 8,
-  border: "1px solid rgba(255, 255, 255, 0.25)",
-  background: "rgba(0, 0, 0, 0.35)",
-  color: "#fff",
-  fontSize: 16,
-  outline: "none",
-};
-
-export const button = (disabled: boolean): CSSProperties => ({
-  marginTop: 8,
-  padding: "12px 16px",
-  border: "none",
-  borderRadius: 8,
-  background: disabled ? "#4a4d5e" : "#5b8cff",
-  color: "#fff",
-  fontSize: 16,
-  fontWeight: 600,
-  cursor: disabled ? "default" : "pointer",
-});
-
-export const message: CSSProperties = {
-  margin: "12px 0 0",
-  padding: "8px 12px",
-  borderRadius: 8,
-  background: "rgba(255, 92, 92, 0.15)",
-  color: "#ff9b9b",
-  fontSize: 13,
-};
-
-export const controls: CSSProperties = {
-  margin: "22px 0 0",
-  padding: 0,
-  listStyle: "none",
-  display: "grid",
-  gridTemplateColumns: "auto 1fr",
-  gap: "6px 14px",
-  fontSize: 13,
-};
-
-/** Lets the key and its label sit directly in the parent grid's two columns. */
-export const controlRow: CSSProperties = { display: "contents" };
-
-export const key: CSSProperties = {
-  justifySelf: "start",
-  padding: "1px 8px",
-  borderRadius: 6,
-  background: "rgba(255, 255, 255, 0.12)",
-  fontFamily: "ui-monospace, Consolas, monospace",
-  fontSize: 12,
-};
+export const backdrop =
+  "fixed inset-0 grid place-items-center overflow-y-auto bg-background p-4 text-foreground";
+export const card =
+  "relative box-border grid w-[min(920px,100%)] gap-8 rounded-[2rem] border border-border bg-surface p-6 shadow-xl sm:p-8 md:grid-cols-[1fr_1.25fr]";
+/** The character sits in a muted panel on the left; stacked above the form when there is no room. */
+export const previewColumn =
+  "flex flex-col items-center justify-center gap-4 rounded-3xl bg-surface-secondary p-6";
+export const fieldsColumn = "flex flex-col gap-5";
+export const eyebrow =
+  "m-0 text-sm font-semibold uppercase tracking-widest text-accent";
+export const title = "m-0 text-4xl font-bold";
+export const subtitle = "mt-1.5 text-sm text-muted";
+export const form = "flex flex-col gap-4";
+export const nameField = "w-full";
+export const submit = "mt-1 font-display text-lg font-semibold";
+export const admin = "flex flex-wrap gap-2";
+export const controls =
+  "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-sm text-muted";
+export const controlRow = "flex items-center gap-1.5";
+export const accountMenu = "absolute right-4 top-4 z-10";

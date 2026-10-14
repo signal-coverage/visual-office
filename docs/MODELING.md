@@ -1,17 +1,22 @@
 # Adding your own 3D models
 
 You model an object (in Blender or anywhere that exports glTF), drop the file in the project,
-add **one line**, and it appears in the office with collisions. There is a working example:
-`public/models/bookshelf.glb`, placed in `shared/props.ts`.
+place it, and it appears in the office with collisions. There is a working example:
+`public/models/bookshelf.glb`, placed in `shared/officeData.ts`.
 
 ## The 3-step version
 
 1. Export your model as a `.glb` (settings below) and save it in `public/models/`.
-2. Add a line to `PROPS` in [`shared/props.ts`](../shared/props.ts):
+2. Place it. Either way ends up as a line in [`shared/officeData.ts`](../shared/officeData.ts):
+   - **With the office editor** (easiest): run `npm run dev`, open
+     <http://localhost:5173/editor.html>, pick your model under _Your models_, click on the plan,
+     and press **Save**. Its footprint is measured from the file, and you can change it in the
+     panel on the right. See "Office editor" in the README.
+   - **By hand**: add a line to `OFFICE_MODELS` in that file:
 
-   ```ts
-   { model: 'my-sofa.glb', at: [-3, 5.5], rotationDeg: 180, footprint: [2.1, 0.9] }
-   ```
+     ```ts
+     { model: 'my-sofa.glb', at: [-3, 5.5], rotationDeg: 180, footprint: [2.1, 0.9] }
+     ```
 
 3. Reload the page. If you see a **magenta wireframe box** instead of your model, the file did not
    load: open the browser console, the warning says why (usually a wrong file name).
@@ -90,19 +95,21 @@ a product. Keep a note of where each model came from.
 
 ## Troubleshooting
 
-| What you see                    | Likely cause                                                                    |
-| ------------------------------- | ------------------------------------------------------------------------------- |
-| Magenta wireframe box           | The file did not load. Check the name in `PROPS` and the browser console.       |
-| Floating or sunk into the floor | The origin is not at the floor. Fix it in Blender and re-export.                |
-| Giant or tiny                   | The scene units were not metric, or transforms were not applied.                |
-| Facing the wall                 | Turn it with `rotationDeg` (try `180`).                                         |
-| Walk straight through it        | No `footprint`, or it is smaller than you think.                                |
-| Cannot get past it              | The `footprint` is bigger than the object.                                      |
-| Dark or black                   | The model has no normals, or its materials use shader nodes that do not export. |
+| What you see                    | Likely cause                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| Magenta wireframe box           | The file did not load. Check the name in `OFFICE_MODELS` and the browser console. |
+| Floating or sunk into the floor | The origin is not at the floor. Fix it in Blender and re-export.                  |
+| Giant or tiny                   | The scene units were not metric, or transforms were not applied.                  |
+| Facing the wall                 | Turn it with `rotationDeg` (try `180`).                                           |
+| Walk straight through it        | No `footprint`, or it is smaller than you think.                                  |
+| Cannot get past it              | The `footprint` is bigger than the object.                                        |
+| Dark or black                   | The model has no normals, or its materials use shader nodes that do not export.   |
 
 ## How it works (for the curious)
 
-`shared/props.ts` is the single list. The client (`src/game/props.ts`) downloads each distinct
+`OFFICE_MODELS` in `shared/officeData.ts` is the single list (`shared/props.ts` checks it and
+turns it into `PROPS`; an entry with a bad file name or size is ignored rather than breaking the
+office). The client (`src/game/props.ts`) downloads each distinct
 `.glb` once, clones it for every placement and draws it as it arrives, so the office is usable while
 models load. The server never sees the model: `OFFICE_COLLIDERS` in `shared/layout.ts` adds each
 prop's `footprint` next to the built-in furniture, and the movement referee uses the same boxes.

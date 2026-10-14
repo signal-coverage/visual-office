@@ -1,0 +1,1 @@
+export { GameMenu } from "./GameMenu";

@@ -1,10 +1,33 @@
-import { useState, type FormEvent } from "react";
 import {
+  Alert,
+  Button,
+  Description,
+  Form,
+  Input,
+  Kbd,
+  Label,
+  TextField,
+} from "@heroui/react";
+import { useState, type FormEvent } from "react";
+import { randomAppearance } from "../../../shared/appearance.ts";
+import { AppearancePicker, RANDOM_LABEL } from "../AppearancePicker";
+import { AvatarPreview } from "../AvatarPreview";
+import {
+  ACTIVITY_LABEL,
   BUTTON_LABEL,
-  CONTROLS,
+  CALENDARS_LABEL,
+  actionOf,
+  EDIT_FLOOR_LABEL,
+  EYEBROW,
+  HINT_KEYS,
+  INVITE_PEOPLE_LABEL,
+  MANAGE_PEOPLE_LABEL,
   NAME_LABEL,
+  NAME_LOCKED_HINT,
   NAME_MAX_LENGTH,
   NAME_PLACEHOLDER,
+  PREVIEW_FALLBACK_NAME,
+  SETTINGS_LABEL,
   SUBTITLE,
   TITLE,
 } from "./consts";
@@ -14,56 +37,175 @@ import type { LobbyScreenProps } from "./types";
 export function LobbyScreen({
   phase,
   initialName,
+  initialAppearance,
   message,
+  fixedName,
+  accountMenu,
+  onEditFloor,
+  onManagePeople,
+  onInvitePeople,
+  onOpenSettings,
+  onOpenActivity,
+  onOpenCalendars,
   onJoin,
 }: LobbyScreenProps) {
-  const [name, setName] = useState(initialName);
+  const [typedName, setName] = useState(initialName);
+  // Somebody who signed in is called what their profile says
+  const name = fixedName ?? typedName;
+  const [appearance, setAppearance] = useState(initialAppearance);
   const busy = phase === "connecting";
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!busy) onJoin(name);
+    if (!busy) onJoin(name, appearance);
   };
 
   return (
-    <div style={styles.backdrop}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>{TITLE}</h1>
-        <p style={styles.subtitle}>{SUBTITLE}</p>
+    <div className={styles.backdrop}>
+      <div className={styles.card}>
+        {accountMenu && <div className={styles.accountMenu}>{accountMenu}</div>}
 
-        <form style={styles.form} onSubmit={handleSubmit}>
-          <label style={styles.label} htmlFor="player-name">
-            {NAME_LABEL}
-          </label>
-          <input
-            id="player-name"
-            style={styles.input}
-            value={name}
-            maxLength={NAME_MAX_LENGTH}
-            placeholder={NAME_PLACEHOLDER}
-            autoFocus
-            autoComplete="off"
-            onChange={(e) => setName(e.target.value)}
+        <div className={styles.previewColumn}>
+          <AvatarPreview
+            name={name.trim() || PREVIEW_FALLBACK_NAME}
+            appearance={appearance}
+            size="large"
           />
-          <button type="submit" style={styles.button(busy)} disabled={busy}>
-            {BUTTON_LABEL[phase]}
-          </button>
-        </form>
+          <Button
+            variant="secondary"
+            size="sm"
+            onPress={() => setAppearance(randomAppearance())}
+          >
+            {RANDOM_LABEL}
+          </Button>
+        </div>
 
-        {message && (
-          <p style={styles.message} role="alert">
-            {message}
-          </p>
-        )}
+        <div className={styles.fieldsColumn}>
+          <header>
+            <p className={styles.eyebrow}>{EYEBROW}</p>
+            <h1 className={styles.title}>{TITLE}</h1>
+            <p className={styles.subtitle}>{SUBTITLE}</p>
+          </header>
 
-        <ul style={styles.controls}>
-          {CONTROLS.map(([keys, action]) => (
-            <li key={keys} style={styles.controlRow}>
-              <span style={styles.key}>{keys}</span>
-              <span>{action}</span>
-            </li>
-          ))}
-        </ul>
+          <Form className={styles.form} onSubmit={handleSubmit}>
+            <TextField
+              className={styles.nameField}
+              value={name}
+              isReadOnly={fixedName !== undefined}
+              autoFocus={fixedName === undefined}
+              onChange={setName}
+            >
+              <Label>{NAME_LABEL}</Label>
+              <Input
+                fullWidth
+                maxLength={NAME_MAX_LENGTH}
+                placeholder={NAME_PLACEHOLDER}
+                autoComplete="off"
+              />
+              {fixedName !== undefined && (
+                <Description>{NAME_LOCKED_HINT}</Description>
+              )}
+            </TextField>
+            <AppearancePicker value={appearance} onChange={setAppearance} />
+
+            <ul className={styles.controls}>
+              {HINT_KEYS.map((keys) => (
+                <li key={keys} className={styles.controlRow}>
+                  <Kbd>{keys}</Kbd>
+                  <span>{actionOf(keys)}</span>
+                </li>
+              ))}
+            </ul>
+
+            <Button
+              type="submit"
+              fullWidth
+              size="lg"
+              className={styles.submit}
+              isDisabled={busy}
+            >
+              {BUTTON_LABEL[phase]}
+            </Button>
+            {(onEditFloor ||
+              onManagePeople ||
+              onInvitePeople ||
+              onOpenSettings ||
+              onOpenActivity ||
+              onOpenCalendars) && (
+              <div className={styles.admin}>
+                {onEditFloor && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onEditFloor}
+                  >
+                    {EDIT_FLOOR_LABEL}
+                  </Button>
+                )}
+                {onManagePeople && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onManagePeople}
+                  >
+                    {MANAGE_PEOPLE_LABEL}
+                  </Button>
+                )}
+                {onInvitePeople && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onInvitePeople}
+                  >
+                    {INVITE_PEOPLE_LABEL}
+                  </Button>
+                )}
+                {onOpenSettings && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onOpenSettings}
+                  >
+                    {SETTINGS_LABEL}
+                  </Button>
+                )}
+                {onOpenActivity && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onOpenActivity}
+                  >
+                    {ACTIVITY_LABEL}
+                  </Button>
+                )}
+                {onOpenCalendars && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onOpenCalendars}
+                  >
+                    {CALENDARS_LABEL}
+                  </Button>
+                )}
+              </div>
+            )}
+          </Form>
+
+          {message && (
+            <Alert status="danger">
+              <Alert.Indicator />
+              <Alert.Content>
+                <Alert.Description>{message}</Alert.Description>
+              </Alert.Content>
+            </Alert>
+          )}
+        </div>
       </div>
     </div>
   );
