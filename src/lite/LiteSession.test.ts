@@ -90,6 +90,15 @@ describe("LiteSession, joining", () => {
     expect(fakes.connectArgs?.[3]).toBe("token-1");
   });
 
+  it("joins the common floor unless it is told another", async () => {
+    const { session, events } = setup();
+    await session.connect("Ana", look, events, null);
+    expect(fakes.connectArgs?.[4]).toBe("office");
+    const other = setup();
+    await other.session.connect("Ana", look, other.events, null, "hr");
+    expect(fakes.connectArgs?.[4]).toBe("hr");
+  });
+
   it("fails when the room cannot be joined, so the screen can say so", async () => {
     fakes.failConnect = new Error("nope");
     const { session, events } = setup();

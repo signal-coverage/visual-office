@@ -18,6 +18,19 @@ export const Player = schema(
     zone: t.string(),
     /** What they are doing, as everybody sees it: one of the statuses of presence.ts. */
     status: t.string(),
+    /** The id of the seat they sit in (see interactions.ts), or "" when standing. */
+    seat: t.string(),
+    /*
+     * More of the look, added after the rest. They come last on purpose: a
+     * schema is read by position, so a client that predates them still reads
+     * every field above correctly.
+     */
+    facialHair: t.uint8(),
+    glasses: t.uint8(),
+    headwear: t.uint8(),
+    top: t.uint8(),
+    shoes: t.uint8(),
+    accessory: t.uint8(),
   },
   "Player",
 );

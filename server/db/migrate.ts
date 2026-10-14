@@ -104,6 +104,61 @@ export const MIGRATIONS: ReadonlyArray<{ id: string; sql: string }> = [
         detail         jsonb  NOT NULL DEFAULT '{}'::jsonb
       )`,
   },
+  {
+    // The rooms of the building. Heads (floor_heads) keep their own table: a floor can have
+    // heads that this table never heard of, as it could before floors were data
+    id: "009_floors",
+    sql: `
+      CREATE TABLE IF NOT EXISTS floors (
+        id         text    PRIMARY KEY,
+        name       text    NOT NULL,
+        common     boolean NOT NULL DEFAULT false,
+        created_at bigint  NOT NULL
+      )`,
+  },
+  {
+    // The floor every installation already had, made the first and common one
+    id: "010_floors_seed_office",
+    sql: `
+      INSERT INTO floors (id, name, common, created_at)
+      VALUES ('office', 'Main office', true, 0)
+      ON CONFLICT DO NOTHING`,
+  },
+  {
+    // Who may enter a floor that is not common: an entry given by an admin
+    id: "011_floor_access",
+    sql: `
+      CREATE TABLE IF NOT EXISTS floor_access (
+        floor   text NOT NULL REFERENCES floors (id),
+        user_id text NOT NULL,
+        PRIMARY KEY (floor, user_id)
+      )`,
+  },
+  {
+    // What the computers and the bookshelves of a floor show. Each floor's content is its own;
+    // no foreign key, so content never depends on the floors table being in step
+    id: "012_floor_content",
+    sql: `
+      CREATE TABLE IF NOT EXISTS floor_content (
+        id         text    PRIMARY KEY,
+        floor      text    NOT NULL,
+        kind       text    NOT NULL CHECK (kind IN ('book', 'announcement')),
+        title      text    NOT NULL,
+        author     text    NOT NULL DEFAULT '',
+        body       text    NOT NULL DEFAULT '',
+        link       text,
+        pinned     boolean NOT NULL DEFAULT false,
+        position   integer NOT NULL,
+        created_at bigint  NOT NULL,
+        updated_at bigint  NOT NULL
+      )`,
+  },
+  {
+    id: "013_floor_content_floor_index",
+    sql: `
+      CREATE INDEX IF NOT EXISTS floor_content_floor_idx
+      ON floor_content (floor, kind, position)`,
+  },
 ];
 
 /** Brings the database up to date, running only the steps it has not had yet. */

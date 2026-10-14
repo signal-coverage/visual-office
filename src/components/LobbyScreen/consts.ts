@@ -18,11 +18,14 @@ export const BUTTON_LABEL: Record<LobbyPhase, string> = {
 };
 
 export const EDIT_FLOOR_LABEL = "Edit this floor";
+export const ROOMS_LABEL = "Rooms";
+export const enteringRoom = (name: string) => `You will enter: ${name}`;
 export const MANAGE_PEOPLE_LABEL = "Manage people";
 export const INVITE_PEOPLE_LABEL = "Invite people";
 export const SETTINGS_LABEL = "Settings";
 export const ACTIVITY_LABEL = "Activity";
 export const CALENDARS_LABEL = "Calendars";
+export const CONTENT_LABEL = "Content";
 export const NAME_LOCKED_HINT = "Your name comes from your account.";
 
 /** The few keys the lobby reminds you of; the menu lists them all. */

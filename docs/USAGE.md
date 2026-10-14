@@ -14,6 +14,8 @@ Una oficina virtual en 3D, en primera persona, para el navegador de escritorio. 
 
 Admins y jefes de piso (en su propio piso) también pueden moderar: ver 3.10.
 
+Entrar a un piso: todos pueden entrar al **piso común** (la oficina principal); a los demás entran los admins, su jefe y quienes tengan una **entrada** que dio un admin (ver 3.14).
+
 Ser jefe de un piso no da permisos sobre otro. El servidor revisa el rol en cada acción, no confía en lo que diga el navegador.
 
 ## 3. Pantallas
@@ -36,9 +38,10 @@ Después de iniciar sesión, el servidor decide qué ves:
 ### 3.3 Lobby
 
 - Tu nombre. Está bloqueado y es el de tu cuenta, salvo que un admin haya activado que cada uno elija el suyo (ver 3.9): entonces se puede escribir y se recuerda el último que usaste.
-- Vista previa 3D del personaje y selector de aspecto: piel, estilo de pelo (corto, largo, calvo), color de pelo, remera y pantalón. **Surprise me** elige al azar.
+- Vista previa 3D del personaje (se puede girar arrastrando) y selector de aspecto en pestañas: **Body** (piel), **Hair** (estilo y color de pelo: corto, largo, calvo, rapado, rodete, cola de caballo, rulos, cresta; colores naturales y de fantasía), **Face** (barba, bigote o barba corta; anteojos redondos, cuadrados o de sol), **Clothes** (remera de manga larga, remera, buzo, camisa con corbata o blazer; color de remera y de pantalón; zapatos) y **Extras** (gorra o gorro; auriculares, credencial, reloj o bufanda). **Surprise me** elige una combinación al azar con sentido.
 - Lista de controles y botón **Enter office**.
 - Según tu rol aparecen **Editar piso**, **Personas**, **Invitar personas**, **Settings**, **Activity** y **Calendars**.
+- Los aspectos guardados antes de estas opciones siguen siendo válidos (sin nada de lo nuevo puesto).
 - El último aspecto que guardaste se recuerda: en tu cuenta si iniciaste sesión, en el navegador si no.
 
 ### 3.4 La oficina
@@ -105,6 +108,34 @@ Cada sala privada (hoy la sala de reuniones) puede mostrar qué pasa en ella, pa
 - **Límites:** es solo lectura, no se reserva nada desde el juego. No hay OAuth ni integración con la API de Google o Microsoft. Los cambios tardan hasta 5 minutos en verse (el servidor relee el feed cada 5 minutos y, si falla, muestra lo último que tenía). Las horas con una zona desconocida, o sin zona, se leen como UTC. Se entienden repeticiones diarias, semanales y mensuales (con excepciones y ocurrencias movidas o canceladas), pero no las anuales. La dirección debe ser https y pública: no se aceptan direcciones de una red privada.
 - **Alternativa a futuro:** una integración OAuth con Google o Microsoft daría actualizaciones inmediatas, calendarios privados sin dirección secreta y reservar desde el juego, a cambio de registrar una aplicación y guardar credenciales por empresa.
 
+### 3.13 Interacciones y sillas
+
+Mirá una silla, un escritorio, una biblioteca o una planta a menos de 2,5 m: aparece una pista ("Click or F · Sit down", "Use the computer", "Read a book", "Look at the plant"). Clic izquierdo o F la usan; frente a una pizarra el clic dibuja.
+
+- **Silla:** sentarte es opcional. El servidor revisa que la silla exista, esté libre (una persona por silla), estés cerca y sin pared de por medio. Los demás te ven sentado (con los brazos hacia el escritorio si la silla da a uno) y tu cámara baja. Te levantás con F, Espacio, W A S D o abriendo el menú, y quedás en un lugar libre junto a la silla. Mientras estás sentado podés chatear, hablar y hacer emotes; tu zona y tu voz usan el lugar de la silla.
+- **Computadora y biblioteca:** la computadora muestra los anuncios del piso (los fijados primero, con fecha y un botón de enlace si lo tienen), la hora y el nombre de la sala; la biblioteca muestra la lista de libros y, al elegir uno, su texto con **Back** para volver. Mientras están abiertas el mouse queda libre para hacer clic y desplazar; F, Esc o **Close** las cierran. Si no hay nada cargado dicen "Nothing posted yet" / "This shelf has no books yet". Cada piso tiene su propio contenido (ver 3.15).
+- **Planta:** un panel con su nombre y una descripción. F o Esc lo cierran.
+
+### 3.15 Contenido de computadoras y bibliotecas (admins y jefes de piso)
+
+En el lobby, el botón **Content** (lo ven los admins y quien puede editar su piso). Elegí la sala y, en las pestañas **Books** o **Announcements**, usá **Add a book** / **Add an announcement**; cada fila tiene **Edit** y **Delete** (pide confirmar).
+
+- **Libro:** título (1 a 80 caracteres), autor (hasta 60), texto (hasta 4000) y enlace opcional. **Anuncio:** título, texto (hasta 1000), enlace opcional y el interruptor **Pinned** para que salga primero.
+- **Máximo:** 50 libros y 50 anuncios por piso.
+- **Solo texto:** los saltos de línea se respetan, pero no hay negritas, imágenes ni HTML: lo que escribas con `<b>` o `**` se ve tal cual. Los enlaces deben empezar con `https://` (no se aceptan `http://`, `javascript:` ni direcciones con usuario y contraseña) y se abren en otra pestaña solo si alguien hace clic.
+- **Quién puede:** los admins en todos los pisos y **cada jefe de piso en su propio piso** (decisión tomada, igual que con el editor del piso). Los miembros solo leen, y solo los pisos a los que pueden entrar. Si preferís que lo haga solo el admin, es el cambio de una función (`mayEditContent`).
+- Cada alta, cambio o baja queda en **Activity** (quién, piso, tipo y título; nunca el texto).
+- **A futuro:** texto con formato (markdown o un subconjunto seguro), imágenes o archivos adjuntos (necesitan almacenamiento y revisión) y reordenar a mano.
+
+### 3.14 Pisos (salas)
+
+- **Mapa de pisos:** con la tecla **R** (o **Map of rooms** en el menú) se abre un mapa con el plano de cada piso en gris (solo si hay más de un piso; no existe en modo lite). Al pasar el mouse o enfocar con las flechas un piso al que podés entrar, se pinta de color y muestra su nombre; clic o Enter viaja. Si no podés entrar, queda gris y dice «This room is not available. If you want to visit it, contact your administrator.». El piso donde estás dice «You are here». Esc, **Close** o un clic fuera lo cierran y te devuelven el control.
+- **Cambiar de piso (lista):** en el menú (Esc) está **Rooms** (solo aparece si hay más de un piso). Los pisos a los que no podés entrar están deshabilitados y dicen «Not available. Ask your administrator to visit it.». Al elegir uno viajás directo, sin pasar por el lobby, con el aviso «Travelling to …». Arriba a la izquierda se ve el nombre del piso. Cada piso tiene su chat, su gente, su voz y su editor: quienes están en pisos distintos no se ven ni se oyen.
+- **Crear un piso (admin):** lobby, botón **Rooms**, escribir el nombre y **Make the room**. El id sale del nombre (letras minúsculas, números y guiones). Empieza con el diseño por defecto; todos los pisos comparten las mismas paredes y zonas por ahora.
+- **Quién entra (admin):** pantalla **Manage people**: junto a «Head of …» hay columnas «Can enter …». El piso común, los admins y los jefes de ese piso aparecen marcados y no se pueden cambiar. Quitar una entrada o un jefe saca a la persona del piso al instante y la lleva a la oficina principal con un aviso.
+- **Recursos humanos:** dar a las personas de RR. HH. una entrada a cada piso (o nombrarlas jefes de piso, que además les da el editor y la moderación). Los jefes no pueden dar entradas a otros.
+- **Editor y lobby:** el editor edita el piso donde estás; el botón del lobby edita (y «Enter office» entra a) el último piso en que estuviste. `?floor=id` en el link elige el piso, también en modo lite (que entra al piso común si no se dice otro).
+
 ### 3.8 Editor del piso (jefes de piso y admins)
 
 - **Plano 2D** del piso, **paleta** de piezas, **inspector** con valores numéricos y **lista de problemas** que bloquea publicar si algo es inválido.
@@ -115,24 +146,27 @@ Cada sala privada (hoy la sala de reuniones) puede mostrar qué pasa en ella, pa
 
 ## 4. Controles
 
-| Tecla                | Acción                                                                   |
-| -------------------- | ------------------------------------------------------------------------ |
-| W A S D              | Moverse                                                                  |
-| Shift                | Correr                                                                   |
-| Mouse                | Mirar                                                                    |
-| Enter                | Abrir el chat; elegí Everyone, Nearby o Direct; Enter envía, Esc cancela |
-| K                    | Golpear la puerta de una sala privada, o a la persona que tenés enfrente |
-| M                    | Unirse a la voz; luego silenciar o activar                               |
-| C                    | Cámara; si no estás en la llamada, entra con el micrófono apagado        |
-| P                    | Compartir pantalla (en la sala de reuniones)                             |
-| Z                    | Cambiar tu estado (pasa por los cuatro y vuelve al primero)              |
-| E + 1 a 5            | Mantené E y apretá un número: saludar, aplaudir, mano, pulgar, baile     |
-| Tab                  | Lista de personas                                                        |
-| F3                   | Panel de diagnóstico                                                     |
-| Click en una pizarra | Mantener para dibujar                                                    |
-| 1 a 7                | Herramienta de la pizarra (7 es la goma)                                 |
-| Backspace            | Borrar la pizarra                                                        |
-| Esc                  | Soltar el mouse y abrir el menú                                          |
+| Tecla                | Acción                                                                         |
+| -------------------- | ------------------------------------------------------------------------------ |
+| W A S D              | Moverse                                                                        |
+| Shift                | Correr                                                                         |
+| Mouse                | Mirar                                                                          |
+| Enter                | Abrir el chat; elegí Everyone, Nearby o Direct; Enter envía, Esc cancela       |
+| K                    | Golpear la puerta de una sala privada, o a la persona que tenés enfrente       |
+| F o click            | Usar lo que mirás a menos de 2,5 m (sentarte, leer, mirar); sentado, F levanta |
+| Espacio, W A S D     | Levantarte de la silla (también abrir el menú)                                 |
+| M                    | Unirse a la voz; luego silenciar o activar                                     |
+| C                    | Cámara; si no estás en la llamada, entra con el micrófono apagado              |
+| P                    | Compartir pantalla (en la sala de reuniones)                                   |
+| Z                    | Cambiar tu estado (pasa por los cuatro y vuelve al primero)                    |
+| E + 1 a 5            | Mantené E y apretá un número: saludar, aplaudir, mano, pulgar, baile           |
+| R                    | Mapa de pisos (si hay más de uno)                                              |
+| Tab                  | Lista de personas                                                              |
+| F3                   | Panel de diagnóstico                                                           |
+| Click en una pizarra | Mantener para dibujar                                                          |
+| 1 a 7                | Herramienta de la pizarra (7 es la goma)                                       |
+| Backspace            | Borrar la pizarra                                                              |
+| Esc                  | Soltar el mouse y abrir el menú                                                |
 
 La voz y el video dependen de la distancia: el volumen baja al alejarte y el video solo llega de quienes están a menos de 6 m.
 
@@ -148,19 +182,23 @@ La voz y el video dependen de la distancia: el volumen baja al alejarte y el vid
 - Chatear, hablar por voz, usar cámara, compartir pantalla y dibujar en pizarras.
 - Ver qué pasa en cada sala privada (menú, **Room calendars**).
 - Ajustar sensibilidad y mostrar u ocultar la barra de teclas.
+- Entrar al piso común y a los pisos que se le dieron, y viajar entre ellos desde el menú (Rooms).
 
 **Jefe de piso, además**
 
 - Editar y publicar su piso.
 - Moderar en su piso: silenciar, sacar o banear a miembros (no a admins).
+- Cargar los libros y anuncios de su piso (Content).
 
 **Admin, además**
 
 - Nombrar o sacar jefes de piso.
+- Crear pisos y decir quién puede entrar a cada uno (3.14).
 - Invitar personas a la empresa.
 - Permitir o no que cada uno elija su propio nombre (Settings).
 - Ver el registro de actividad.
 - Conectar el calendario de cada sala privada (Calendars).
+- Cargar libros y anuncios de cualquier piso (Content).
 - Crear la organización si es el primer admin.
 
 ## 6. Qué está hecho
@@ -179,7 +217,8 @@ La voz y el video dependen de la distancia: el volumen baja al alejarte y el vid
 
 | Pendiente                                                                      | Qué hay hoy                                                                                    | Alternativa mientras tanto                                    |
 | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **Varios pisos**                                                               | Un solo piso, `office`. Las reglas ya son por piso, pero el servidor solo conoce uno           | Una instalación por área, o asignar al jefe del único piso    |
+| **Mapa para elegir piso** (vista gris, color al pasar el mouse)                | La lista **Rooms** del menú                                                                    | Usar la lista                                                 |
+| **Grupos de roles** («todo RR. HH. entra a todos los pisos»)                   | Entradas por persona                                                                           | Dar la entrada a cada persona de RR. HH.                      |
 | **Editar un borrador con el piso abierto**, y publicar en un horario tranquilo | Editar saca a todos                                                                            | Editar fuera de horario                                       |
 | **Paredes, divisor, pizarra y pantalla como datos movibles**                   | Son fijos en el código                                                                         | Ninguna directa: se cambian en el código                      |
 | **Piezas con altura y ángulo libre**                                           | Solo giros de 90° y siempre sobre el piso, así que una lámpara no puede ir sobre un escritorio | Elegir modelos que ya incluyan lo que va encima               |
@@ -196,15 +235,19 @@ La voz y el video dependen de la distancia: el volumen baja al alejarte y el vid
 **Preguntas abiertas de diseño**
 
 - Si el rango del jefe de piso sale del directorio de la empresa o de una tabla propia.
-- Si un miembro puede visitar cualquier piso o solo el de su área.
-- Si la voz debe pasar entre pisos (ascensor o recepción) o cada piso es privado.
+- Respondidas: un miembro entra al piso común y a los que un admin le dio (o dirige); la voz no pasa entre pisos.
 - Cuántos pisos y personas debe soportar la primera versión.
 
 ## 8. Límites y qué no está verificado
 
+- **Varios pisos:** el servidor (crear piso, entrar con y sin `floor`, piso inexistente, entrada concedida y quitada en vivo que saca a la persona, jefe quitado, intento de entrar por id de sala, sala de voz por piso, bloqueo por piso, permisos de admin vs jefe) lo probé con clientes reales de Colyseus y un inicio de sesión falso, sin base de datos; el viaje por el menú, el aviso, el nombre del piso y que Ana y Beto en pisos distintos no se ven, lo vi en el navegador sin inicio de sesión. No vi en el navegador un piso prohibido (sin sesión todos pueden entrar; solo con tests y clientes reales), ni las pantallas de admin (Rooms, columnas Can enter), ni el viaje con LiveKit real, ni con una cuenta real de Clerk. La Postgres de verdad no se tocó: las migraciones y tiendas se probaron en PGlite. Con varios procesos del servidor, quitar una entrada solo saca a la persona del proceso que atendió el pedido; los demás lo notan al próximo ingreso.
+
 - **Modo lite** (sin WebGL, dispositivo solo táctil, o ventana de menos de 768 px): en vez de la oficina 3D se muestra una pantalla que dice por qué, y deja ver quién está conectado, leer y mandar chat, abrir los calendarios de las salas y unirse a la llamada de voz (escuchás a todos los de la oficina abierta y podés silenciarte). No incluye: ver ni recorrer la oficina (te quedás donde aparecen los recién llegados, así que el chat "Cerca" y lo que otros oyen de tu voz salen de ese punto), cámara, compartir pantalla, estado, emotes, golpear la puerta ni pizarras. `?view=lite` o `?view=office` en el link fuerzan una u otra vista. Lo vi funcionando en un navegador de escritorio con WebGL bloqueado y con emulación táctil de 390 px (nombre, lista, chat, calendarios); no lo probé en un teléfono real, ni el teclado virtual (Enter), ni unirme a la llamada de voz, ni con una cuenta real de Clerk.
+- Muebles: los dibujos son de cajas y cilindros (sin descargas), con detalles chicos (teclas, tazas, manijas, ruedas de la silla) que la calidad Baja omite. La lógica pura (huella, altura del asiento, que nada flote, presupuesto de triángulos) tiene tests, y los vi en el navegador desde varios puntos con calidad Alta y Baja. No medí fps reales ni los probé en una GPU de verdad (solo render por software en un navegador sin cabeza).
+- Interacciones y sillas: el servidor (sentarse, ocupada, lejos, levantarse, soltar al salir) lo probé con dos clientes reales de Colyseus, y en el navegador con dos pestañas (Ana se sienta, Beto la ve sentada frente al escritorio, Beto no puede tomar la misma silla, Ana se levanta con Espacio y con W A S D, el clic también sienta, el panel de la computadora se abre y cierra). El pointer lock real se simuló en la página, así que Esc con el mouse realmente bloqueado (cierra el panel sin abrir el menú), abrir el menú sentado y el clic en una pizarra con una silla a la vista están cubiertos solo por tests y lectura del código. Los sofás no son asientos.
 - Calidad gráfica: la lógica pura (decisión de Auto, perfiles, ajustes guardados) tiene tests, y vi en el navegador que la opción se guarda y que el panel F3 muestra el modo. No medí fps antes y después en una GPU lenta real.
 
+- Los pisos nuevos no se pueden borrar ni renombrar desde la pantalla (el renombrar existe en la API: `POST /admin/floors/<id>`).
 - Un solo editor a la vez, a propósito, para que dos personas no se pisen.
 - Esc con el mouse bloqueado de verdad, el redibujado del avatar para otro cliente y el guardado del aspecto con una cuenta real de Clerk están probados con tests, pero no los vi funcionando en un navegador.
 - Estado y emotes: los vi funcionando en el navegador con dos pestañas (punto de color, lista, emote visible en la otra). El paso a Away tras 5 minutos sin tocar nada está probado con tests, pero no esperé esos minutos en el navegador. Tampoco los probé con la pantalla de bloqueo real del mouse ni con una cuenta real de Clerk.

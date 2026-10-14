@@ -8,6 +8,7 @@ import { MUTED_NOTICE, UNMUTED_NOTICE } from "../../shared/moderation.ts";
 import { isIdle } from "../../shared/presence.ts";
 import { buildRoster, type Roster } from "../../shared/roster.ts";
 import { CallController } from "../game/CallController";
+import { COMMON_FLOOR_ID } from "../../shared/floors.ts";
 import { connect, type Connection } from "../game/network";
 import type { VoiceState } from "../game/VoiceChat";
 
@@ -60,6 +61,8 @@ export class LiteSession {
     appearance: Appearance,
     events: LiteEvents,
     token: string | null,
+    /** The floor to enter: the common one unless told another. */
+    floor: string = COMMON_FLOOR_ID,
   ) {
     this.events = events;
     this.call.setMutedByModerator(false);
@@ -100,11 +103,15 @@ export class LiteSession {
         onLook: () => {},
         onStatus: () => {},
         onEmote: () => {},
+        onFloor: () => {},
         onLayout: () => {},
         onClosing: () => {},
         onReopened: () => {},
         onModerator: () => {},
         onModerated: () => {},
+        onSeated: () => {},
+        onSeatRefused: () => {},
+        onSeat: () => {},
         onVoiceMuted: (muted) => {
           this.call.setMutedByModerator(muted);
           if (!this.disposed)
@@ -120,6 +127,7 @@ export class LiteSession {
         },
       },
       token,
+      floor,
     );
     // dispose() may have run while we were connecting (e.g. React StrictMode)
     if (this.disposed) {

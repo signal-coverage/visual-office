@@ -1,3 +1,4 @@
+import { defaultAppearance } from "../shared/appearance.ts";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   describeSession,
@@ -94,7 +95,12 @@ describe("account", () => {
 
     it("brings the look the person chose last, so the menu starts with it on any browser", async () => {
       await users.upsert({ id: "ana", email: "ana@acme.com", name: "Ana" });
-      const look = { skin: 1, hairColor: 2, hairStyle: 0, shirt: 3, pants: 4 };
+      const look = {
+        ...defaultAppearance("Ana"),
+        skin: 1,
+        glasses: 2,
+        top: 3,
+      };
       await users.setAppearance("ana", look);
       expect(await describeSession("tok-ana", deps)).toMatchObject({
         state: "member",

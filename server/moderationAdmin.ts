@@ -6,7 +6,12 @@ import {
 } from "../shared/moderation.ts";
 import type { AuditRecorder } from "./audit.ts";
 import type { BanStore } from "./banStore.ts";
-import type { AdminReply, AdminRequest } from "./floorAdmin.ts";
+import {
+  floorIdsOf,
+  type AdminReply,
+  type AdminRequest,
+  type KnownFloors,
+} from "./floorAdmin.ts";
 import {
   moderate,
   type ModerationActor,
@@ -24,7 +29,7 @@ export interface ModerationAdminDeps {
   audit: AuditRecorder;
   now: () => number;
   /** The floors that exist. */
-  knownFloors: readonly string[];
+  knownFloors: KnownFloors;
   /** The floor moderated when the request does not say. */
   floor: string;
 }
@@ -73,7 +78,7 @@ async function route(
       "Say what to do (action: mute, unmute, kick, ban or unban) and to whom (userId).",
     );
   const floor = typeof body.floor === "string" ? body.floor : deps.floor;
-  if (!deps.knownFloors.includes(floor))
+  if (!(await floorIdsOf(deps.knownFloors)).includes(floor))
     return { status: 404, body: { error: "No such floor." } };
 
   // Who is moderating is who the token says (or the server's own tools), never the request

@@ -12,6 +12,7 @@ import {
   MEETING_SCREEN,
   OFFICE_COLLIDERS,
   PLANTS,
+  type Layout,
   sceneFor,
   WHITEBOARD,
 } from "./layout.ts";
@@ -176,6 +177,17 @@ describe("sceneFor", () => {
     expect(scene.colliders.length).toBeGreaterThan(empty.colliders.length);
   });
 
+  it("keeps the shell apart from the furniture, so each can be drawn its own way", () => {
+    const empty = sceneFor({ furniture: [], models: [] });
+    const scene = sceneFor({
+      furniture: [{ kind: "desk", x: 0, z: 0, rotation: 0 }],
+      models: [],
+    });
+    expect(scene.shell).toEqual(empty.pieces);
+    expect(scene.shell).toEqual(empty.shell);
+    expect(scene.pieces.length).toBeGreaterThan(scene.shell.length);
+  });
+
   it("lists the plants, so they can be drawn", () => {
     const scene = sceneFor({
       furniture: [{ kind: "plant", x: 2, z: 3, rotation: 0 }],
@@ -208,5 +220,26 @@ describe("sceneFor", () => {
     });
     expect(scene.furniture).toHaveLength(1);
     expect(scene.models).toEqual([]);
+  });
+});
+
+describe("sceneFor interactables", () => {
+  it("lists what can be used, named the same way every time it is built", () => {
+    const layout = {
+      furniture: [
+        { kind: "desk", x: 0, z: 0, rotation: 0 },
+        { kind: "chair", x: 0, z: 1, rotation: 0 },
+        { kind: "bogus", x: 0, z: 0, rotation: 0 },
+        { kind: "plant", x: 3, z: 3, rotation: 0 },
+      ],
+      models: [
+        { model: "bookshelf.glb", at: [0, -9.6], footprint: [1.6, 0.4] },
+      ],
+    } as unknown as Layout;
+    const ids = sceneFor(layout).interactables.map(({ id }) => id);
+    expect(ids).toEqual(["desk:0", "chair:1", "plant:2", "bookshelf.glb:0"]);
+    expect(
+      sceneFor(structuredClone(layout)).interactables.map(({ id }) => id),
+    ).toEqual(ids);
   });
 });

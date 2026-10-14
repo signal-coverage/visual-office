@@ -210,6 +210,8 @@ export async function createVoiceToken(
   name: string,
   zone: string | null = null,
   canSpeak = true,
+  /** The floor whose voice room it is: every floor has its own. */
+  floor?: string,
 ): Promise<string> {
   const token = new AccessToken(config.apiKey, config.apiSecret, {
     identity,
@@ -217,7 +219,7 @@ export async function createVoiceToken(
     ttl: zone ? PRIVATE_TOKEN_TTL : TOKEN_TTL,
   });
   token.addGrant({
-    room: voiceRoomName(zone, config.roomPrefix),
+    room: voiceRoomName(zone, config.roomPrefix, floor),
     roomJoin: true,
     canPublish: true,
     // Sharing a screen is for private rooms, where there is a screen to show it on

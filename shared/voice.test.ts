@@ -131,3 +131,32 @@ describe("proximityVolume", () => {
     expect(proximityVolume(NaN)).toBe(0);
   });
 });
+
+describe("voiceRoomName per floor", () => {
+  it("is the same as it always was for the main office, so nothing running changes", () => {
+    expect(voiceRoomName(null, "", "office")).toBe(voiceRoomName(null));
+    expect(voiceRoomName("meeting", "acme-", "office")).toBe(
+      voiceRoomName("meeting", "acme-"),
+    );
+  });
+
+  it("is a room of its own for every floor, in the open office and in each zone", () => {
+    const names = new Set<string>();
+    for (const floor of ["office", "hr", "lab", "office-meeting"])
+      for (const zone of [null, "meeting", "lounge"])
+        names.add(voiceRoomName(zone, "acme-", floor));
+    expect(names.size).toBe(12);
+  });
+
+  it("cannot be confused with a zone of the main office", () => {
+    expect(voiceRoomName(null, "", "office-meeting")).not.toBe(
+      voiceRoomName("meeting", "", "office"),
+    );
+  });
+
+  it("still starts with the company's prefix", () => {
+    expect(voiceRoomName("meeting", "acme-", "hr").startsWith("acme-")).toBe(
+      true,
+    );
+  });
+});

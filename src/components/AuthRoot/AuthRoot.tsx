@@ -8,10 +8,11 @@ import {
   useAuth,
 } from "@clerk/react";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { FLOOR_ID } from "../../../shared/floors.ts";
+import { COMMON_FLOOR_ID } from "../../../shared/floors.ts";
 import { AppEntry } from "../../App";
 import { fetchAccess, type Access } from "../../editor/access";
 import { gameBackend } from "../../editor/backend";
+import { floorFromSearch } from "../../floors/search";
 import { currentServerUrl } from "../../game/serverAddress";
 import { AccountGate, type Member } from "../AccountGate";
 import { ErrorBoundary } from "../ErrorBoundary";
@@ -48,6 +49,14 @@ const CalendarsAdmin = lazy(() =>
     default: module.CalendarsAdmin,
   })),
 );
+const ContentAdmin = lazy(() =>
+  import("../ContentAdmin").then((module) => ({
+    default: module.ContentAdmin,
+  })),
+);
+const RoomsAdmin = lazy(() =>
+  import("../RoomsAdmin").then((module) => ({ default: module.RoomsAdmin })),
+);
 const PeopleAdmin = lazy(() =>
   import("../PeopleAdmin").then((module) => ({ default: module.PeopleAdmin })),
 );
@@ -69,15 +78,21 @@ function MemberApp({ member }: { member: Member }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [calendarsOpen, setCalendarsOpen] = useState(false);
+  const [roomsOpen, setRoomsOpen] = useState(false);
+  const [contentOpen, setContentOpen] = useState(false);
+  // The editor of the lobby is the one of the room the player was last in (the common one at first)
+  const [floor, setFloor] = useState(
+    () => floorFromSearch(window.location.search) ?? COMMON_FLOOR_ID,
+  );
 
-  // Asked once for each person: it only decides which buttons to show
+  // Asked for each person and each room: it only decides which buttons to show
   const userId = member.user.id;
   useEffect(() => {
     let current = true;
     void fetchAccess(
       gameBackend({
         serverUrl: currentServerUrl(),
-        floor: FLOOR_ID,
+        floor,
         getToken,
         models: [],
       }),
@@ -87,7 +102,7 @@ function MemberApp({ member }: { member: Member }) {
     return () => {
       current = false;
     };
-  }, [userId, getToken]);
+  }, [userId, getToken, floor]);
 
   return (
     <>
@@ -115,6 +130,15 @@ function MemberApp({ member }: { member: Member }) {
           onOpenCalendars: member.user.isAdmin
             ? () => setCalendarsOpen(true)
             : undefined,
+          onManageRooms: member.user.isAdmin
+            ? () => setRoomsOpen(true)
+            : undefined,
+          // Admins, and the head of the room they are in: the server says which rooms each may edit
+          onManageContent:
+            member.user.isAdmin || access.canEdit
+              ? () => setContentOpen(true)
+              : undefined,
+          onFloorChange: setFloor,
         }}
       />
       {managing && (
@@ -177,11 +201,39 @@ function MemberApp({ member }: { member: Member }) {
           </Suspense>
         </ErrorBoundary>
       )}
+      {contentOpen && (
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setContentOpen(false)} />}
+        >
+          <Suspense fallback={null}>
+            <ContentAdmin
+              getToken={getToken}
+              onClose={() => setContentOpen(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {roomsOpen && (
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setRoomsOpen(false)} />}
+        >
+          <Suspense fallback={null}>
+            <RoomsAdmin
+              getToken={getToken}
+              onClose={() => setRoomsOpen(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
       {editing && (
         <ErrorBoundary
           fallback={<LoadFailed onClose={() => setEditing(false)} />}
         >
-          <GameEditor getToken={getToken} onClose={() => setEditing(false)} />
+          <GameEditor
+            floor={floor}
+            getToken={getToken}
+            onClose={() => setEditing(false)}
+          />
         </ErrorBoundary>
       )}
     </>

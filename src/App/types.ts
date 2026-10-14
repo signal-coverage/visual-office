@@ -29,6 +29,12 @@ export interface SignedInUser {
   onOpenActivity?: () => void;
   /** Opens where the calendars of the rooms are set: only for admins. */
   onOpenCalendars?: () => void;
+  /** Opens where rooms are made and named: only for admins. */
+  onManageRooms?: () => void;
+  /** Opens where the books and announcements of the computers and shelves are set: only for admins and heads of floors. */
+  onManageContent?: () => void;
+  /** The player is in this room (its id) now: the editor offered on the first screen is the one of the last room they were in. */
+  onFloorChange?: (floor: string) => void;
 }
 
 export interface AppProps {

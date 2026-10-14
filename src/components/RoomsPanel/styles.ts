@@ -1,0 +1,9 @@
+export const title = "font-display text-2xl font-bold";
+export const intro = "mb-1 text-sm text-muted";
+export const body = "gap-3";
+export const list = "m-0 flex list-none flex-col gap-2 p-0";
+export const row = "flex flex-col gap-1";
+export const item = "justify-start gap-2 font-semibold";
+export const chip = "ml-1";
+export const note = "m-0 px-1 text-xs text-muted";
+export const actions = "flex items-center justify-end gap-2";

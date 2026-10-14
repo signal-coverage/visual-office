@@ -1,0 +1,31 @@
+# The game server's variables (Railway) for one company.
+# Copy this file to a name starting with ".env" (for example .env.acme.server): those names are
+# ignored by git. Never commit a file with real values.
+#
+#   npm run check:company -- --server .env.acme.server --site .env.acme.site
+
+# The company's Neon connection string (pooled), "postgresql://..."
+DATABASE_URL=
+
+# The company's Clerk keys: secret "sk_..." and publishable "pk_..." (the same one the site uses)
+CLERK_SECRET_KEY=
+VITE_CLERK_PUBLISHABLE_KEY=
+
+# Optional: the company's organization "org_...", only if you set it up yourself
+CLERK_ORGANIZATION_ID=
+
+# The verified email(s) of the first admin(s), separated by commas
+ADMIN_EMAILS=
+
+# The company's site, for example https://office.acme.com (several: separated by commas)
+ALLOWED_ORIGINS=
+
+# LiveKit: "wss://....livekit.cloud" and the key and secret of the project
+LIVEKIT_URL=
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+
+# The company's short name, for example "acme". Needed if several companies share a LiveKit project
+VOICE_ROOM_PREFIX=
+
+# Leave FLOOR_ADMIN_TOKEN out unless you need scripts: it gives full access to whoever holds it

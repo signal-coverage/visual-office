@@ -16,6 +16,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { floorFromSearch } from "../../floors/search";
 import { defaultAppearance } from "../../../shared/appearance.ts";
 import type { ChatScope } from "../../../shared/chat.ts";
 import { MAX_NAME_LENGTH, sanitizeName } from "../../../shared/name.ts";
@@ -201,6 +202,7 @@ export function LiteOffice({ reason, signedIn, onTryOffice }: LiteOfficeProps) {
             },
           },
           token,
+          floorFromSearch(window.location.search) ?? undefined,
         ),
       )
       .then(() => {

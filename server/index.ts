@@ -2,7 +2,7 @@ import "./env.ts";
 import { Server } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { ROOM_NAME, SERVER_PORT } from "../shared/constants.ts";
-import { FLOOR_ID } from "../shared/floors.ts";
+import { COMMON_FLOOR_ID } from "../shared/floors.ts";
 import { FURNITURE } from "../shared/layout.ts";
 import { findProblems } from "../shared/officeProblems.ts";
 import { PROPS } from "../shared/props.ts";
@@ -23,33 +23,44 @@ import {
 import { handleCalendarAdmin } from "./calendarAdmin.ts";
 import { calendarOptionsFromEnv, createFeedFetcher } from "./calendarFetch.ts";
 import { handleCalendar } from "./calendarRooms.ts";
+import { handleContentAdmin, MAX_CONTENT_BODY_CHARS } from "./contentAdmin.ts";
+import { handleContentRead } from "./contentRead.ts";
+import { MemoryContentStore, type ContentStore } from "./contentStore.ts";
 import { createCalendarService } from "./calendarService.ts";
 import { allowedOriginsFromEnv, corsHeadersFor } from "./cors.ts";
 import { connectDatabase, databaseUrlFromEnv } from "./db/connect.ts";
 import { migrate } from "./db/migrate.ts";
 import { handleAuditAdmin } from "./auditAdmin.ts";
 import { authorizeAdmin, handleFloorAdmin } from "./floorAdmin.ts";
+import { handleFloorList } from "./floorList.ts";
+import { createFloorPreviews } from "./floorPreviews.ts";
 import {
   closeFloor,
+  floorDirectory,
   floorLocks,
   floorRooms,
-  KNOWN_FLOORS,
+  knownFloorIds,
   layouts,
+  recheckAccess,
   refreshFloor,
   setFloorLockStore,
+  setFloorStore,
   setLayoutStore,
 } from "./floors.ts";
 import { handleLayoutAdmin, MAX_LAYOUT_BODY_BYTES } from "./layoutAdmin.ts";
 import { handleModerationAdmin } from "./moderationAdmin.ts";
 import { PgAuditStore } from "./pgAuditStore.ts";
+import { PgContentStore } from "./pgContentStore.ts";
 import { PgFloorLocks } from "./pgFloorLocks.ts";
+import { PgFloorStore } from "./pgFloorStore.ts";
 import { handlePeopleAdmin } from "./peopleAdmin.ts";
+import { handleRoomsAdmin } from "./roomsAdmin.ts";
 import { handleSettingsAdmin } from "./settingsAdmin.ts";
 import { PgLayoutStore } from "./pgLayoutStore.ts";
 import { PgSettingsStore } from "./pgSettingsStore.ts";
 import { PgUserStore } from "./pgUserStore.ts";
 import { MemorySettingsStore, type SettingsStore } from "./settingsStore.ts";
-import { OfficeRoom } from "./OfficeRoom.ts";
+import { chooseFloor, OfficeRoom } from "./OfficeRoom.ts";
 import { ZONES } from "../shared/zones.ts";
 import { voiceStatusFromEnv } from "./voice.ts";
 
@@ -59,20 +70,23 @@ const allowedOrigins = allowedOriginsFromEnv(process.env);
 // With a database, floor locks survive a restart; without one they live in memory
 const databaseUrl = databaseUrlFromEnv(process.env);
 let settings: SettingsStore = new MemorySettingsStore();
+let content: ContentStore = new MemoryContentStore();
 if (databaseUrl) {
   const pool = connectDatabase(databaseUrl);
   await migrate(pool);
   setFloorLockStore(new PgFloorLocks(pool));
   setLayoutStore(new PgLayoutStore(pool));
+  setFloorStore(new PgFloorStore(pool));
   setUserStore(new PgUserStore(pool));
   settings = new PgSettingsStore(pool);
   setAuditStore(new PgAuditStore(pool));
+  content = new PgContentStore(pool);
   console.log(
-    "Database connected: floor locks, layouts, people and the audit log are kept in it",
+    "Database connected: floors, floor locks, layouts, people, books and announcements, and the audit log are kept in it",
   );
 } else {
   console.log(
-    "No DATABASE_URL: floor locks, layouts, people and the audit log are kept in memory and lost on restart",
+    "No DATABASE_URL: floors, floor locks, layouts, people, books and announcements, and the audit log are kept in memory and lost on restart",
   );
 }
 
@@ -166,6 +180,12 @@ const server = new Server({
   transport: new WebSocketTransport(),
   // Hosting platforms poll this to know the process is alive
   express: (app) => {
+    const floorPreviews = createFloorPreviews({
+      authenticate: authenticateJoin,
+      floors: floorDirectory,
+      layouts,
+      now: Date.now,
+    });
     app.get("/health", (_req, res) => {
       res.json({ ok: true });
     });
@@ -184,12 +204,32 @@ const server = new Server({
         )?.[1];
         const body =
           req.method === "POST" ? await readJson(req, 2048) : undefined;
-        const reply = clerkAuth
-          ? await handleAccount(
-              { method: req.method, path, token, body },
-              clerkAuth,
-            )
-          : null;
+        // The rooms and which of them this person may enter: with sign-in off too
+        const reply =
+          (await handleFloorList(
+            { method: req.method, path, token },
+            {
+              authenticate: authenticateJoin,
+              floors: floorDirectory,
+              rolesOf: (id) => users.rolesOf(id),
+            },
+          )) ??
+          (await floorPreviews({ method: req.method, path, token })) ??
+          (await handleContentRead(
+            { method: req.method, path, token },
+            {
+              authenticate: authenticateJoin,
+              floors: floorDirectory,
+              rolesOf: (id) => users.rolesOf(id),
+              content,
+            },
+          )) ??
+          (clerkAuth
+            ? await handleAccount(
+                { method: req.method, path, token, body },
+                clerkAuth,
+              )
+            : null);
         res
           .status(reply?.status ?? 404)
           .json(reply?.body ?? { error: "Not found." });
@@ -200,7 +240,7 @@ const server = new Server({
     app.use("/calendar", (req, res) => {
       if (handleCors(req, res)) return;
       void (async () => {
-        const token = /^Bearer (S+)$/.exec(
+        const token = /^Bearer (\S+)$/.exec(
           req.headers.authorization ?? "",
         )?.[1];
         // Null means sign-in is off and everybody may enter
@@ -251,25 +291,38 @@ const server = new Server({
         const path = `/admin${req.url.split("?")[0]}`;
         // A layout is bigger than the little messages of locking a floor
         const isLayout = /\/layout(\/|$)/.test(path);
+        const isContent = /^\/admin\/content(\/|$)/.test(path);
         const body = await readJson(
           req,
-          isLayout ? MAX_LAYOUT_BODY_BYTES : 4096,
+          isLayout
+            ? MAX_LAYOUT_BODY_BYTES
+            : isContent
+              ? MAX_CONTENT_BODY_CHARS
+              : 4096,
         );
         const query = Object.fromEntries(
           new URL(req.url, "http://localhost").searchParams,
         );
         const request = { method: req.method, path, query, body, actor };
         const reply =
+          (await handleRoomsAdmin(request, {
+            floors: floorDirectory,
+            users,
+            audit: recordAudit,
+            onAccessChanged: recheckAccess,
+          })) ??
           (await handleLayoutAdmin(request, {
             layouts,
             locks: floorLocks,
-            knownFloors: KNOWN_FLOORS,
+            knownFloors: knownFloorIds,
             onPublished: refreshFloor,
             audit: recordAudit,
           })) ??
           (await handlePeopleAdmin(request, {
             users,
-            knownFloors: KNOWN_FLOORS,
+            knownFloors: knownFloorIds,
+            floors: floorDirectory,
+            onAccessChanged: recheckAccess,
             audit: recordAudit,
             bans,
           })) ??
@@ -283,6 +336,11 @@ const server = new Server({
             audit: recordAudit,
             allowLocalForTests: calendarOptions.allowLocalForTests,
           })) ??
+          (await handleContentAdmin(request, {
+            content,
+            floors: floorDirectory,
+            audit: recordAudit,
+          })) ??
           (await handleAuditAdmin(request, { audit: auditLog })) ??
           (await handleModerationAdmin(request, {
             users,
@@ -290,12 +348,12 @@ const server = new Server({
             rooms: floorRooms,
             audit: recordAudit,
             now: Date.now,
-            knownFloors: KNOWN_FLOORS,
-            floor: FLOOR_ID,
+            knownFloors: knownFloorIds,
+            floor: COMMON_FLOOR_ID,
           })) ??
           (await handleFloorAdmin(request, {
             locks: floorLocks,
-            knownFloors: KNOWN_FLOORS,
+            knownFloors: knownFloorIds,
             closeFloor,
             audit: recordAudit,
           }));
@@ -306,7 +364,10 @@ const server = new Server({
     });
   },
 });
-server.define(ROOM_NAME, OfficeRoom);
+// One room for each floor: the floor in the join options picks (and, when there is none yet, makes) it
+server.define(ROOM_NAME, OfficeRoom).filterBy(["floor"]);
+// Set after defining it: Colyseus would take a static onAuth next to the room's own for a mistake and say it ignores the room's
+OfficeRoom.onAuth = chooseFloor;
 
 await server.listen(port);
 console.log(`Office server listening on ws://localhost:${port}`);

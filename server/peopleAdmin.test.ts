@@ -3,6 +3,7 @@ import type { Actor } from "./actor.ts";
 import type { AuditInput } from "./auditStore.ts";
 import { MemoryBanStore } from "./banStore.ts";
 import { handlePeopleAdmin } from "./peopleAdmin.ts";
+import { MemoryFloorStore } from "./floorStore.ts";
 import { MemoryUserStore } from "./userStore.ts";
 
 const person = (
@@ -290,5 +291,103 @@ describe("handlePeopleAdmin and bans", () => {
       ["user_ana", null],
       ["user_beto", 1_000 + 10 * 60_000],
     ]);
+  });
+});
+
+describe("floors made while the server runs", () => {
+  it("are listed with the people and can have heads", async () => {
+    const users = new MemoryUserStore();
+    await users.upsert({ id: "user_ana", email: null, name: "Ana" });
+    const floors = ["office"];
+    const deps = { users, knownFloors: async () => floors };
+    const list = async () =>
+      handlePeopleAdmin(
+        { method: "GET", path: "/admin/people", actor: { kind: "machine" } },
+        deps,
+      );
+    expect((await list())?.body.floors).toEqual(["office"]);
+    floors.push("hr");
+    expect((await list())?.body.floors).toEqual(["office", "hr"]);
+    const named = await handlePeopleAdmin(
+      {
+        method: "POST",
+        path: "/admin/floors/hr/heads",
+        body: { userId: "user_ana", head: true },
+        actor: { kind: "machine" },
+      },
+      deps,
+    );
+    expect(named?.status).toBe(200);
+  });
+});
+
+describe("people and the rooms they can enter", () => {
+  const setup = async () => {
+    const users = new MemoryUserStore();
+    await users.upsert({ id: "user_ana", email: null, name: "Ana" });
+    await users.upsert({ id: "user_beto", email: null, name: "Beto" });
+    await users.upsert({ id: "user_cris", email: null, name: "Cris" });
+    await users.setAdmin("user_cris", true);
+    await users.addHead("lab", "user_beto");
+    const floorStore = new MemoryFloorStore(() => 1);
+    await floorStore.create({ id: "hr", name: "People" });
+    await floorStore.create({ id: "lab", name: "Lab" });
+    await floorStore.grant("hr", "user_ana");
+    const changed: Array<[string, string]> = [];
+    const deps = {
+      users,
+      knownFloors: ["office", "hr", "lab"],
+      floors: floorStore,
+      onAccessChanged: (floor: string, userId: string) =>
+        changed.push([floor, userId]),
+    };
+    return { users, deps, changed };
+  };
+
+  it("gives the names of the floors, and for each person the entries they were given and every floor they can enter", async () => {
+    const { deps } = await setup();
+    const reply = await handlePeopleAdmin(
+      { method: "GET", path: "/admin/people", actor: { kind: "machine" } },
+      deps,
+    );
+    expect(reply?.body.floorInfo).toEqual([
+      { id: "office", name: "Main office", common: true },
+      { id: "hr", name: "People", common: false },
+      { id: "lab", name: "Lab", common: false },
+    ]);
+    const people = reply?.body.people as Array<Record<string, unknown>>;
+    const byId = Object.fromEntries(people.map((p) => [p.id, p]));
+    expect(byId.user_ana).toMatchObject({
+      access: ["hr"],
+      canEnter: ["office", "hr"],
+    });
+    expect(byId.user_beto).toMatchObject({
+      access: [],
+      canEnter: ["office", "lab"],
+    });
+    expect(byId.user_cris).toMatchObject({
+      access: [],
+      canEnter: ["office", "hr", "lab"],
+    });
+  });
+
+  it("tells the rooms when a head is taken away, and only then", async () => {
+    const { deps, changed } = await setup();
+    const call = (head: boolean) =>
+      handlePeopleAdmin(
+        {
+          method: "POST",
+          path: "/admin/floors/lab/heads",
+          body: { userId: "user_beto", head },
+          actor: { kind: "machine" },
+        },
+        deps,
+      );
+    await call(true);
+    expect(changed).toEqual([]);
+    await call(false);
+    expect(changed).toEqual([["lab", "user_beto"]]);
+    await call(false);
+    expect(changed).toEqual([["lab", "user_beto"]]);
   });
 });

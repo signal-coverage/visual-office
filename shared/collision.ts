@@ -60,3 +60,53 @@ export function moveWithCollisions(
   }
   return pos;
 }
+
+/** How far inside a box a point may be, or outside, and still count as standing in it. */
+const ENDPOINT_MARGIN = 0.06;
+/** A box is a hair smaller when a line grazes it, so touching a wall is not crossing it. */
+const GRAZE = 0.02;
+
+function contains(b: Box, p: Vec2, margin: number): boolean {
+  return (
+    p.x >= b.minX - margin &&
+    p.x <= b.maxX + margin &&
+    p.z >= b.minZ - margin &&
+    p.z <= b.maxZ + margin
+  );
+}
+
+function crosses(a: Vec2, b: Vec2, box: Box): boolean {
+  let enter = 0;
+  let leave = 1;
+  const axes = [
+    [a.x, b.x - a.x, box.minX + GRAZE, box.maxX - GRAZE],
+    [a.z, b.z - a.z, box.minZ + GRAZE, box.maxZ - GRAZE],
+  ] as const;
+  for (const [start, delta, min, max] of axes) {
+    if (min >= max) return false;
+    if (Math.abs(delta) < 1e-9) {
+      if (start < min || start > max) return false;
+      continue;
+    }
+    const t1 = (min - start) / delta;
+    const t2 = (max - start) / delta;
+    enter = Math.max(enter, Math.min(t1, t2));
+    leave = Math.min(leave, Math.max(t1, t2));
+    if (enter > leave) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether something solid lies between two points on the floor. A box that
+ * either end stands in is the thing being reached (the chair you sit on, the
+ * desk you look at), so it does not count.
+ */
+export function segmentBlocked(a: Vec2, b: Vec2, boxes: Box[]): boolean {
+  return boxes.some(
+    (box) =>
+      !contains(box, a, ENDPOINT_MARGIN) &&
+      !contains(box, b, ENDPOINT_MARGIN) &&
+      crosses(a, b, box),
+  );
+}

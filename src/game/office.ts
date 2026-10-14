@@ -4,22 +4,27 @@ import {
   OFFICE_HEIGHT,
   OFFICE_WIDTH,
 } from "../../shared/constants.ts";
-import {
-  BOX_PIECES,
-  COLORS,
-  PLANTS,
-  type FloorScene,
-} from "../../shared/layout.ts";
+import { COLORS, sceneFor, type FloorScene } from "../../shared/layout.ts";
+import { OFFICE_FURNITURE } from "../../shared/officeData.ts";
 import { makeFloorTexture } from "./floorTexture";
+import type { DetailLevel } from "./furnitureLook";
+import { buildFurniture } from "./furnitureMesh";
 
 /** What is drawn by default: the layout every build carries. */
-const DEFAULT_DRAWING = { pieces: BOX_PIECES, plants: PLANTS };
+const DEFAULT_DRAWING = sceneFor({ furniture: OFFICE_FURNITURE, models: [] });
 
-/** Draws the office described in shared/layout.ts. Collisions come from there too. */
-export function buildOffice({
-  pieces,
-  plants,
-}: Pick<FloorScene, "pieces" | "plants"> = DEFAULT_DRAWING): THREE.Group {
+/**
+ * Draws the office described in shared/layout.ts: the shell box by box and the
+ * furniture merged into a few meshes (furnitureMesh.ts). Collisions come from
+ * the layout too, and do not depend on how a piece is drawn.
+ */
+export function buildOffice(
+  {
+    shell,
+    furniture,
+  }: Pick<FloorScene, "shell" | "furniture"> = DEFAULT_DRAWING,
+  detail: DetailLevel = "high",
+): THREE.Group {
   const group = new THREE.Group();
   const materials = new Map<string, THREE.MeshStandardMaterial>();
 
@@ -59,7 +64,7 @@ export function buildOffice({
   group.add(floor);
   plane(OFFICE_HEIGHT, -1, COLORS.ceiling, COLORS.ceilingGlow);
 
-  for (const piece of pieces) {
+  for (const piece of shell) {
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(...piece.size),
       material(piece.color, piece.emissive, piece.opacity),
@@ -70,21 +75,7 @@ export function buildOffice({
     group.add(mesh);
   }
 
-  for (const { x, z } of plants) {
-    const pot = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.2, 0.16, 0.4, 12),
-      material(COLORS.pot),
-    );
-    pot.position.set(x, 0.2, z);
-    pot.castShadow = true;
-    const leaves = new THREE.Mesh(
-      new THREE.SphereGeometry(0.38, 12, 10),
-      material(COLORS.leaves),
-    );
-    leaves.position.set(x, 0.75, z);
-    leaves.castShadow = true;
-    group.add(pot, leaves);
-  }
+  group.add(buildFurniture(furniture, detail));
 
   return group;
 }

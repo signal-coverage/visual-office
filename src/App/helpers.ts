@@ -6,6 +6,9 @@ import { messageForAuthCode } from "../../shared/auth.ts";
 import {
   FLOOR_CLOSED_CODE,
   FLOOR_CLOSED_MESSAGE,
+  FLOOR_UNAVAILABLE_MESSAGE,
+  FLOOR_UNKNOWN_MESSAGE,
+  messageForFloorCode,
 } from "../../shared/floors.ts";
 import { messageForModerationCode } from "../../shared/moderation.ts";
 import {
@@ -19,8 +22,16 @@ import {
 export function messageForDisconnect(code: number): string {
   return code === FLOOR_CLOSED_CODE
     ? FLOOR_CLOSED_MESSAGE
-    : (messageForModerationCode(code) ?? CONNECTION_LOST_MESSAGE);
+    : (messageForModerationCode(code) ??
+        messageForFloorCode(code) ??
+        CONNECTION_LOST_MESSAGE);
 }
+
+/** The refusals the server gives before there is a room come as plain HTTP statuses: its own words are the ones to show. */
+const PRE_ROOM_MESSAGES = new Map<number, string>([
+  [404, FLOOR_UNKNOWN_MESSAGE],
+  [503, FLOOR_UNAVAILABLE_MESSAGE],
+]);
 
 /** Why joining failed: the floor is closed for editing, or the server cannot be reached. */
 export function messageForJoinError(error: unknown): string {
@@ -29,9 +40,21 @@ export function messageForJoinError(error: unknown): string {
       ? (error as { code?: unknown }).code
       : undefined;
   if (code === FLOOR_CLOSED_CODE) return FLOOR_CLOSED_MESSAGE;
+  const message =
+    typeof error === "object" && error !== null
+      ? (error as { message?: unknown }).message
+      : undefined;
+  if (
+    typeof code === "number" &&
+    message !== undefined &&
+    PRE_ROOM_MESSAGES.get(code) === message
+  )
+    return message as string;
   return (
     (typeof code === "number"
-      ? (messageForAuthCode(code) ?? messageForModerationCode(code))
+      ? (messageForAuthCode(code) ??
+        messageForModerationCode(code) ??
+        messageForFloorCode(code))
       : null) ?? UNREACHABLE_MESSAGE
   );
 }
@@ -95,6 +118,9 @@ export interface ClickPromptState {
   menuOpen: boolean;
   chatOpen: boolean;
   calendarOpen: boolean;
+  mapOpen: boolean;
+  /** A computer or a shelf is open: it has the mouse on purpose. */
+  panelOpen: boolean;
 }
 
 /**
@@ -108,6 +134,8 @@ export function showClickPrompt(state: ClickPromptState): boolean {
     !state.locked &&
     !state.menuOpen &&
     !state.chatOpen &&
-    !state.calendarOpen
+    !state.calendarOpen &&
+    !state.mapOpen &&
+    !state.panelOpen
   );
 }

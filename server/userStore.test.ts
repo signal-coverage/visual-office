@@ -116,7 +116,19 @@ describe.each([
   });
 
   describe("the look somebody chose", () => {
-    const look = { skin: 1, hairColor: 2, hairStyle: 0, shirt: 3, pants: 4 };
+    const look = {
+      skin: 1,
+      hairColor: 2,
+      hairStyle: 0,
+      shirt: 3,
+      pants: 4,
+      facialHair: 1,
+      glasses: 2,
+      headwear: 1,
+      top: 3,
+      shoes: 2,
+      accessory: 1,
+    };
 
     it("is nothing until they choose one", async () => {
       const store = await setup();
@@ -132,6 +144,29 @@ describe.each([
       expect(await store.appearanceOf("user_ana")).toEqual(look);
       await store.setAppearance("user_ana", { ...look, shirt: 5 });
       expect((await store.appearanceOf("user_ana"))?.shirt).toBe(5);
+    });
+
+    it("is read with every extra part plain when it was saved before they existed", async () => {
+      const store = await setup();
+      await store.upsert(ana);
+      const old = { skin: 1, hairColor: 2, hairStyle: 0, shirt: 3, pants: 4 };
+      await store.setAppearance("user_ana", old as typeof look);
+      expect(await store.appearanceOf("user_ana")).toEqual({
+        ...old,
+        facialHair: 0,
+        glasses: 0,
+        headwear: 0,
+        top: 0,
+        shoes: 0,
+        accessory: 0,
+      });
+    });
+
+    it("is nothing when what was saved is not a look", async () => {
+      const store = await setup();
+      await store.upsert(ana);
+      await store.setAppearance("user_ana", { ...look, glasses: 99 });
+      expect(await store.appearanceOf("user_ana")).toBeNull();
     });
 
     it("is kept apart for each person", async () => {

@@ -96,7 +96,9 @@ Never put a secret key, the database address or LiveKit's keys on the site.
 ## Checking a company's settings
 
 Put each side's variables in a file of `NAME=value` lines, **outside git** (names that start
-with `.env` are ignored by this repository), then:
+with `.env` are ignored by this repository). Copy the templates [`docs/templates/company.server.example`](templates/company.server.example)
+and [`docs/templates/company.site.example`](templates/company.site.example) to names such as
+`.env.acme.server` and `.env.acme.site`, fill them in, then:
 
 ```
 npm run check:company -- --server .env.acme.server --site .env.acme.site

@@ -6,8 +6,14 @@ import {
   NOT_MEMBER_CODE,
 } from "../../shared/auth.ts";
 import {
+  FLOOR_ACCESS_LOST_CODE,
+  FLOOR_ACCESS_LOST_MESSAGE,
   FLOOR_CLOSED_CODE,
   FLOOR_CLOSED_MESSAGE,
+  FLOOR_FORBIDDEN_CODE,
+  FLOOR_FORBIDDEN_MESSAGE,
+  FLOOR_UNAVAILABLE_MESSAGE,
+  FLOOR_UNKNOWN_MESSAGE,
 } from "../../shared/floors.ts";
 import {
   BANNED_CODE,
@@ -88,6 +94,8 @@ describe("showClickPrompt", () => {
     menuOpen: false,
     chatOpen: false,
     calendarOpen: false,
+    mapOpen: false,
+    panelOpen: false,
   };
 
   it("asks for a click when the player is in the office and the mouse is free, with nothing else open", () => {
@@ -104,7 +112,47 @@ describe("showClickPrompt", () => {
     expect(showClickPrompt({ ...playing, calendarOpen: true })).toBe(false);
   });
 
+  it("does not, while the map of rooms has the mouse on purpose", () => {
+    expect(showClickPrompt({ ...playing, mapOpen: true })).toBe(false);
+  });
+
+  it("does not, while a computer or a shelf has the mouse on purpose", () => {
+    expect(showClickPrompt({ ...playing, panelOpen: true })).toBe(false);
+  });
+
   it("does not, outside the office", () => {
     expect(showClickPrompt({ ...playing, online: false })).toBe(false);
+  });
+});
+
+describe("the rooms", () => {
+  it("says why somebody was sent out of a room they may not be in", () => {
+    expect(messageForDisconnect(FLOOR_FORBIDDEN_CODE)).toBe(
+      FLOOR_FORBIDDEN_MESSAGE,
+    );
+    expect(messageForDisconnect(FLOOR_ACCESS_LOST_CODE)).toBe(
+      FLOOR_ACCESS_LOST_MESSAGE,
+    );
+  });
+
+  it("says why joining a room failed: not allowed, no such room, or it could not be checked", () => {
+    const refused = (code: number, message = "x") =>
+      Object.assign(new Error(message), { code });
+    expect(messageForJoinError(refused(FLOOR_FORBIDDEN_CODE))).toBe(
+      FLOOR_FORBIDDEN_MESSAGE,
+    );
+    expect(messageForJoinError(refused(404, FLOOR_UNKNOWN_MESSAGE))).toBe(
+      FLOOR_UNKNOWN_MESSAGE,
+    );
+    expect(messageForJoinError(refused(503, FLOOR_UNAVAILABLE_MESSAGE))).toBe(
+      FLOOR_UNAVAILABLE_MESSAGE,
+    );
+  });
+
+  it("does not take every 404 or 503 for a room that is not there", () => {
+    const refused = (code: number) =>
+      Object.assign(new Error("Bad Gateway"), { code });
+    expect(messageForJoinError(refused(404))).toBe(UNREACHABLE_MESSAGE);
+    expect(messageForJoinError(refused(503))).toBe(UNREACHABLE_MESSAGE);
   });
 });

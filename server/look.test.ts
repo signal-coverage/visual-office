@@ -6,7 +6,19 @@ import {
   waitedEnough,
 } from "./look.ts";
 
-const look = { skin: 1, hairColor: 2, hairStyle: 0, shirt: 3, pants: 4 };
+const look = {
+  skin: 1,
+  hairColor: 2,
+  hairStyle: 0,
+  shirt: 3,
+  pants: 4,
+  facialHair: 1,
+  glasses: 2,
+  headwear: 0,
+  top: 3,
+  shoes: 2,
+  accessory: 1,
+};
 
 describe("nextLook", () => {
   it("is the new look when something really changed", () => {
@@ -25,6 +37,26 @@ describe("nextLook", () => {
       ...look,
       shirt: 5,
     });
+  });
+
+  it("changes the extra parts too, and only when they are valid choices", () => {
+    expect(nextLook(look, { ...look, glasses: 3, headwear: 2 })).toEqual({
+      ...look,
+      glasses: 3,
+      headwear: 2,
+    });
+    expect(nextLook(look, { ...look, glasses: 99, top: -1 })).toBeNull();
+  });
+
+  it("keeps the extras when an old client that only knows five parts changes one of them", () => {
+    const oldClient = {
+      skin: 4,
+      hairColor: 2,
+      hairStyle: 0,
+      shirt: 3,
+      pants: 4,
+    };
+    expect(nextLook(look, oldClient)).toEqual({ ...look, skin: 4 });
   });
 
   it("is nothing for what is not a look at all", () => {

@@ -1,4 +1,5 @@
 import { ROOM_NAME } from "./constants.ts";
+import { COMMON_FLOOR_ID } from "./floors.ts";
 
 /** What the server sends a player so they can join a voice room. */
 export interface VoiceCredentials {
@@ -19,9 +20,20 @@ export interface VoiceCredentials {
  *
  * `prefix` names the company when several share one LiveKit project: without
  * it their "office" rooms would be the same room.
+ *
+ * Every floor has its own rooms, so people on different floors never hear each
+ * other. The main office keeps the names it always had; the others are
+ * `floor.<id>` and `floor.<id>.<zone>`, which no id or zone can turn into
+ * another floor's name (they never contain a dot).
  */
-export function voiceRoomName(zone: string | null, prefix = ""): string {
-  return `${prefix}${zone ? `${ROOM_NAME}-${zone}` : ROOM_NAME}`;
+export function voiceRoomName(
+  zone: string | null,
+  prefix = "",
+  floor: string = COMMON_FLOOR_ID,
+): string {
+  if (floor === COMMON_FLOOR_ID)
+    return `${prefix}${zone ? `${ROOM_NAME}-${zone}` : ROOM_NAME}`;
+  return `${prefix}floor.${floor}${zone ? `.${zone}` : ""}`;
 }
 
 /** Within this distance (meters) other players are heard at full volume. */

@@ -1,5 +1,4 @@
 import { lazy, Suspense, useState } from "react";
-import { FLOOR_ID } from "../../../shared/floors.ts";
 import { gameBackend } from "../../editor/backend";
 import { currentServerUrl } from "../../game/serverAddress";
 import * as styles from "./styles";
@@ -17,11 +16,11 @@ const EditorApp = lazy(() =>
  * It talks to the game server itself, as the person who signed in; the server
  * checks their role on every call, whatever this page says.
  */
-export function GameEditor({ getToken, onClose }: GameEditorProps) {
+export function GameEditor({ floor, getToken, onClose }: GameEditorProps) {
   const [backend] = useState(() =>
     gameBackend({
       serverUrl: currentServerUrl(),
-      floor: FLOOR_ID,
+      floor,
       getToken,
       models: __MODEL_FILES__,
     }),

@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { format, resolveConfig } from "prettier";
 import type { Plugin } from "vite";
-import { FLOOR_ID } from "../shared/floors.ts";
+import { COMMON_FLOOR_ID } from "../shared/floors.ts";
 import { sanitizeFurniture } from "../shared/furniture.ts";
 import { officeDataSource } from "../shared/officeFile.ts";
 import { isModelFileName, sanitizeModels } from "../shared/props.ts";
@@ -277,7 +277,7 @@ export async function forwardFloor(
   deps: ForwardDeps,
 ): Promise<Reply> {
   const { path: suffix, method } = FLOOR_ROUTES[action];
-  const url = `${deps.baseUrl}/admin/floors/${FLOOR_ID}${suffix}`;
+  const url = `${deps.baseUrl}/admin/floors/${COMMON_FLOOR_ID}${suffix}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };

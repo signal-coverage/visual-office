@@ -8,11 +8,13 @@ Think WorkAdventure, but in 3D.
 ## Features
 
 - First-person movement (WASD + mouse look, Shift to run) with wall and furniture collisions
+- Furniture drawn from a few boxes and cylinders (desks with drawers and monitors, swivel chairs, sofas with cushions, three kinds of plant...), merged into a handful of draw calls; Low quality drops the smallest details
 - Multiplayer presence: other people appear as animated avatars with name tags
 - Text chat (Enter) with three scopes: everyone, nearby (the people who can hear you, or the ones in your private room) and a direct message to one person. A direct message shows a badge on the chat button, a toast, an optional short beep, and the tab title counts what is waiting; do-not-disturb people still get the message, silently
 - Knock (K, or the menu): at a private room's door it tells the people inside, otherwise it tells the person you face within 3 m; one every 5 seconds, never to do-not-disturb people
 - Presence status (available, in a meeting, do not disturb, away): a coloured dot on the name tag and in the people list; change it with Z or from the menu. Away comes by itself after 5 minutes without input, and in a meeting while you are in the meeting room, unless you chose something else
 - Emotes (wave, clap, raise hand, thumbs up, dance): hold E and press 1 to 5, or use the menu; everybody sees the avatar's arms move and an icon float above the head for 3 seconds
+- Interactions: look at a chair, a desk, a bookshelf or a plant within 2.5 m and a hint tells what **F** (or a left click) does. Chairs are opt-in seats: sit down, and get up with F, Space, W A S D or by opening the menu. A computer shows the announcements of the room's floor and a bookshelf lets you read its books; admins (and the head of each floor) set both up from **Content** in the lobby (plain text, https links only; see `docs/BUILDING.md`, 7c)
 - Proximity voice chat (M): full volume within 2 m, silent beyond 10 m
 - Proximity video (C): a camera replaces the face of whoever is within 6 m (the hair stays on top)
 - Microphone meter next to the voice button, read from the sound that is really being sent
@@ -22,6 +24,7 @@ Think WorkAdventure, but in 3D.
 - Every player has a chat colour of their own, the same in the chat and in the people list
 - Whiteboard in the meeting room: draw on it live, and everybody in the room sees it as it happens
 - Sign-in (Clerk): only the people of the company get in; their name comes from their profile, unless an admin lets people choose their own (company setting, off by default)
+- Rooms: several floors, one common room everybody may enter, entries for the others, travel from the menu or the map (R)
 - Roles: admins and the head of each floor may edit it; admins name the heads from the game
 - Moderation: admins, and the head of a floor on their own floor, can mute somebody's microphone, remove them from the office or ban them for a few minutes, from the game menu or the People screen. The server checks it every time; admins cannot be moderated
 - Activity log: admins see who did what (moderation, closing and publishing floors, naming heads, company settings) in the **Activity** screen of the lobby
@@ -34,8 +37,9 @@ Think WorkAdventure, but in 3D.
 - Diagnostics panel (F3): FPS, worst frame, GPU, graphics quality in use and server corrections, to find out why it feels slow
 - Graphics quality (Esc, Options): Auto, High or Low. Low turns off shadows, caps the resolution at 1x and updates far-away people less often; Auto picks Low on software rendering or after about 4 s of frames under 30 fps, and never goes back up by itself
 - Lite mode: a device with no WebGL, a touch-only device or a narrow window gets a lite screen instead of the 3D office: who is online, chat, room calendars and the voice call (listen and mute). No 3D view, no movement, no camera, no screen sharing. `?view=lite` / `?view=office` in the link force one or the other (the office cannot be forced without WebGL)
-- Lobby with a name and a character creator (skin, hair style and colour, shirt, pants), with a
-  live 3D preview; your choice is remembered on this browser
+- Lobby with a name and a character creator in tabs (skin; hair style and colour; facial hair and glasses;
+  top, shirt, pants and shoes; headwear and an accessory), with a live 3D preview you can drag round;
+  your choice is remembered on this browser
 - Automatic reconnection and clear disconnect handling
 
 Desktop browsers only. There is no mobile support.
@@ -73,22 +77,25 @@ Use headphones when testing with two tabs on one machine, or you will hear an ec
 
 ## Controls
 
-| Key     | Action                                                                                |
-| ------- | ------------------------------------------------------------------------------------- |
-| Click   | Capture the mouse                                                                     |
-| W A S D | Move                                                                                  |
-| Shift   | Run                                                                                   |
-| Mouse   | Look around                                                                           |
-| Enter   | Open the chat (pick Everyone, Nearby or Direct), then Enter to send (Esc to cancel)   |
-| K       | Knock on a private room's door, or on the person you face                             |
-| Z       | Change your status (available, in a meeting, do not disturb, away)                    |
-| E + 1–5 | Hold E and press a number: wave, clap, raise hand, thumbs up, dance                   |
-| Tab     | Show / hide the people list                                                           |
-| Click   | At a whiteboard: hold to draw. 1–7 choose the pen (7 is the eraser), Backspace clears |
-| F3      | Show / hide the diagnostics panel (also `?debug` in the link)                         |
-| M       | Join voice, then mute / unmute                                                        |
-| C       | Camera on / off. If you are not in the call yet, joins it with the microphone **off** |
-| Esc     | Release the mouse and open the menu (character, controls, options, leave)             |
+| Key     | Action                                                                                       |
+| ------- | -------------------------------------------------------------------------------------------- |
+| Click   | Capture the mouse                                                                            |
+| W A S D | Move                                                                                         |
+| Shift   | Run                                                                                          |
+| Mouse   | Look around                                                                                  |
+| Enter   | Open the chat (pick Everyone, Nearby or Direct), then Enter to send (Esc to cancel)          |
+| K       | Knock on a private room's door, or on the person you face                                    |
+| F       | Use what you look at (sit, read, look); when seated, get up (Space and W A S D too)          |
+| Click   | Same as F on what you look at, except at a whiteboard, where it draws                        |
+| Z       | Change your status (available, in a meeting, do not disturb, away)                           |
+| E + 1–5 | Hold E and press a number: wave, clap, raise hand, thumbs up, dance                          |
+| R       | Map of the rooms: grey plans, colour and name on the ones you may enter (more than one room) |
+| Tab     | Show / hide the people list                                                                  |
+| Click   | At a whiteboard: hold to draw. 1–7 choose the pen (7 is the eraser), Backspace clears        |
+| F3      | Show / hide the diagnostics panel (also `?debug` in the link)                                |
+| M       | Join voice, then mute / unmute                                                               |
+| C       | Camera on / off. If you are not in the call yet, joins it with the microphone **off**        |
+| Esc     | Release the mouse and open the menu (character, controls, options, leave)                    |
 
 ## Scripts
 
@@ -170,7 +177,9 @@ docs/           Modelling guide, the building design, adding a company
 - **Positions** are synchronised through Colyseus state; chat is sent as messages. The server decides who receives each one (`server/chatRouting.ts`: everybody, the people in earshot or the same private zone, or one person), so a client never chooses recipients. Knocks work the same way (`server/knockRouting.ts`).
 - **Looks** are a handful of palette indices (`shared/appearance.ts`), sent when joining and checked
   by the server: anything that is not a valid choice is replaced by a default made from the name.
-  Adding a colour or a hair style is one line in that file; the menu and the avatar pick it up.
+  Adding a colour is one line in that file; a new style also needs its boxes in
+  `src/game/avatarLook.ts` and a label in the picker. A look saved before an option existed stays
+  valid (see docs/BUILDING.md, Looks).
   A look can be changed at any time from the in-game menu (Esc): the server checks it, applies it
   to the player and everybody else sees the avatar change at once. Signed-in people get their last
   look back on the next visit (`users.appearance`); the rule for who may change it is one function,
@@ -259,8 +268,9 @@ Its limits, and what to do about each:
   purpose: nobody is inside while the plan changes, and two editors cannot overwrite each other.
   _Instead (planned):_ edit a draft while the floor stays open, and publish it at a scheduled
   quiet moment.
-- **There is one floor.** The lock, the layouts and the roles are already per floor, but the server
-  only knows `office`. _Instead (planned):_ floors kept in the database, one per area.
+- **All floors share the same shell and zones.** Floors are in the database, each with its own
+  layout, lock, heads and voice, but walls, divider, whiteboard and screen are code. _Instead
+  (planned):_ the shell as data. There is a list of rooms in the menu; the map comes later.
 
 #### Moderation and the activity log
 
@@ -276,7 +286,9 @@ _Limits:_ bans are kept in memory, so a server restart forgets them, and they ar
 
 The app is a building for a company: **each floor is one area's office** (marketing, sales,
 development…), and only its head, or an admin, can edit it. Sign-in, roles, stored layouts with
-versions, the floor lock and the editor inside the game exist; several floors do not yet. Each
+versions, the floor lock and the editor inside the game exist, and so do **several floors**: an
+admin makes rooms (lobby, _Rooms_), says who may enter each (_People_, "Can enter"), everybody can
+enter the common room, and people travel from the Esc menu (_Rooms_). Each
 company has its own installation ([docs/COMPANIES.md](docs/COMPANIES.md)). The full design is in
 [docs/BUILDING.md](docs/BUILDING.md).
 

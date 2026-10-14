@@ -590,3 +590,19 @@ describe("handleFloorAdmin audit", () => {
     expect(reply?.status).toBe(200);
   });
 });
+
+describe("floors made while the server runs", () => {
+  it("are known to the lock API when the list is asked for each time", async () => {
+    const floors = ["office"];
+    const deps = {
+      locks: new FloorLocks(),
+      knownFloors: async () => floors,
+      closeFloor: () => 0,
+    };
+    const ask = () =>
+      handleFloorAdmin({ method: "GET", path: "/admin/floors/hr" }, deps);
+    expect((await ask())?.status).toBe(404);
+    floors.push("hr");
+    expect((await ask())?.status).toBe(200);
+  });
+});

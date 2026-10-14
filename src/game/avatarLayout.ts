@@ -75,6 +75,26 @@ export function hairCenter(onScreen: boolean): number {
 }
 
 /**
+ * How far the hair and whatever is worn over it rise when a camera screen
+ * replaces the head: the screen is a little shorter than the head but the cap
+ * must not cover its top edge.
+ */
+export const GEAR_LIFT_ON_SCREEN = hairCenter(true) - hairCenter(false);
+
+/**
+ * The highest anything worn on the head may reach, so that even lifted by the
+ * camera it stays under the name tag.
+ */
+export const GEAR_TOP_LIMIT =
+  NAME_TAG.center - NAME_TAG.height / 2 - GEAR_LIFT_ON_SCREEN;
+
+/**
+ * A shoe: a box a little wider than the leg that reaches forward (-z, where the
+ * avatar looks). `dz` is how far its middle is in front of the leg's.
+ */
+export const SHOE = { width: 0.22, height: 0.09, depth: 0.3, dz: -0.04 };
+
+/**
  * How to show a camera picture of the given proportions (width / height) on a
  * square: the part in the middle, so the face is not squashed. `mirror` flips
  * it left to right using the same square.

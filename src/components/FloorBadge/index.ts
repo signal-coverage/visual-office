@@ -1,0 +1,1 @@
+export { FloorBadge } from "./FloorBadge";

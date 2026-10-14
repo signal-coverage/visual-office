@@ -10,6 +10,7 @@ export const eyebrow =
   "m-0 text-sm font-semibold uppercase tracking-widest text-accent";
 export const title = "m-0 text-4xl font-bold";
 export const subtitle = "mt-1.5 text-sm text-muted";
+export const room = "mt-1 text-sm font-semibold text-accent";
 export const form = "flex flex-col gap-4";
 export const nameField = "w-full";
 export const submit = "mt-1 font-display text-lg font-semibold";

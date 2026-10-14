@@ -30,10 +30,12 @@ export async function enforceZones(
   issuedZoneOf: (identity: string) => string | null | undefined,
   /** The company's prefix on its rooms, when several companies share a LiveKit project. */
   roomPrefix = "",
+  /** The floor whose voice rooms are checked: every floor has its own. */
+  floor?: string,
 ): Promise<string[]> {
   const evicted: string[] = [];
   for (const zone of zones) {
-    const room = voiceRoomName(zone, roomPrefix);
+    const room = voiceRoomName(zone, roomPrefix, floor);
     try {
       const present = await admin.listParticipants(room);
       for (const identity of identitiesToEvict(present, zone, issuedZoneOf)) {

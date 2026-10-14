@@ -1,0 +1,10 @@
+# The site's variables (Vercel) for one company. They are fixed when the site is built:
+# deploy again after changing them.
+# Copy this file to a name starting with ".env" (for example .env.acme.site). Never commit real values.
+# Never put a secret key, the database address or LiveKit's keys on the site.
+
+# "wss://" plus the company's Railway address
+VITE_SERVER_URL=
+
+# The company's Clerk publishable key "pk_..."
+VITE_CLERK_PUBLISHABLE_KEY=

@@ -1,0 +1,1 @@
+export { RoomsPanel } from "./RoomsPanel";

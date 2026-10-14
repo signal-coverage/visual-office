@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { MemoryFloorStore } from "./floorStore.ts";
 import {
   closeFloor,
+  floorDirectory,
   floorRooms,
+  knownFloorIds,
+  recheckAccess,
   refreshFloor,
   registerModeratedRoom,
   registerRoom,
+  setFloorStore,
 } from "./floors.ts";
 
 function fakeRoom() {
@@ -162,5 +167,72 @@ describe("floorRooms", () => {
       floorRooms.setVoiceMuted("broken-moderated", "user_ana", true),
     ).rejects.toThrow("LiveKit is down");
     forgets.forEach((forget) => forget());
+  });
+});
+
+describe("recheckAccess", () => {
+  const roomThat = (heard: string[]) => ({
+    removeUser: () => 0,
+    setVoiceMuted: async () => 0,
+    accessChanged: (userId: string) => {
+      heard.push(userId);
+    },
+  });
+
+  it("tells every room of the floor that somebody's access changed", () => {
+    const a: string[] = [];
+    const b: string[] = [];
+    const forgetA = registerModeratedRoom("access-floor", roomThat(a));
+    const forgetB = registerModeratedRoom("access-floor", roomThat(b));
+    recheckAccess("access-floor", "user_ana");
+    expect(a).toEqual(["user_ana"]);
+    expect(b).toEqual(["user_ana"]);
+    forgetA();
+    forgetB();
+  });
+
+  it("does not tell the rooms of other floors, nor rooms that are gone", () => {
+    const other: string[] = [];
+    const gone: string[] = [];
+    const forget = registerModeratedRoom("access-other", roomThat(other));
+    registerModeratedRoom("access-gone", roomThat(gone))();
+    recheckAccess("access-nobody", "user_ana");
+    recheckAccess("access-gone", "user_ana");
+    expect(other).toEqual([]);
+    expect(gone).toEqual([]);
+    forget();
+  });
+
+  it("goes on telling the rest when one room fails, and copes with rooms that cannot recheck", () => {
+    const heard: string[] = [];
+    const forgets = [
+      registerModeratedRoom("access-mixed", {
+        removeUser: () => 0,
+        setVoiceMuted: async () => 0,
+        accessChanged: () => {
+          throw new Error("room is closing");
+        },
+      }),
+      registerModeratedRoom("access-mixed", {
+        removeUser: () => 0,
+        setVoiceMuted: async () => 0,
+      }),
+      registerModeratedRoom("access-mixed", roomThat(heard)),
+    ];
+    expect(() => recheckAccess("access-mixed", "user_ana")).not.toThrow();
+    expect(heard).toEqual(["user_ana"]);
+    for (const forget of forgets) forget();
+  });
+});
+
+describe("the floors of the server", () => {
+  it("are the stored ones, asked for each time", async () => {
+    const store = new MemoryFloorStore(() => 1);
+    setFloorStore(store);
+    expect(await knownFloorIds()).toEqual(["office"]);
+    await store.create({ id: "hr", name: "People" });
+    expect(await knownFloorIds()).toEqual(["office", "hr"]);
+    expect((await floorDirectory.get("hr"))?.name).toBe("People");
+    setFloorStore(new MemoryFloorStore());
   });
 });

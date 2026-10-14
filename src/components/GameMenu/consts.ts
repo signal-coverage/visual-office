@@ -9,6 +9,8 @@ export const ITEMS = {
   status: "Your status",
   emotes: "Emotes",
   knock: "Knock (K)",
+  map: "Map of rooms (R)",
+  rooms: "Rooms",
   calendar: "Room calendars",
   controls: "Controls",
   options: "Options",

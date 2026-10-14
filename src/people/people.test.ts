@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  canEnterFloor,
+  entryIsFixed,
   fetchPeople,
   moderatePerson,
   setHead,
+  withAccess,
   withHead,
   type Person,
 } from "./people";
@@ -42,6 +45,10 @@ describe("fetchPeople", () => {
     });
     expect(await fetchPeople(request, base)).toEqual({
       floors: ["office", "sales"],
+      floorInfo: [
+        { id: "office", name: "office", common: false },
+        { id: "sales", name: "sales", common: false },
+      ],
       people: [ana, beto],
     });
     expect(calls[0].url).toBe(`${base}/people`);
@@ -185,5 +192,72 @@ describe("moderatePerson", () => {
       ok: false,
       text: "That could not be done right now. Try again in a moment.",
     });
+  });
+});
+
+describe("people and the rooms they can enter", () => {
+  const floorInfo = [
+    { id: "office", name: "Main office", common: true },
+    { id: "hr", name: "People", common: false },
+    { id: "lab", name: "Lab", common: false },
+  ];
+  const person = (overrides: Partial<Person>): Person => ({
+    ...ana,
+    access: [],
+    ...overrides,
+  });
+
+  it("brings the names of the floors, or makes them from the ids when the server says none", async () => {
+    const withNames = api({
+      body: { floors: ["office", "hr"], floorInfo, people: [] },
+    });
+    expect((await fetchPeople(withNames.request, base))?.floorInfo).toEqual(
+      floorInfo,
+    );
+    const without = api({ body: { floors: ["office", "sales"], people: [] } });
+    expect((await fetchPeople(without.request, base))?.floorInfo).toEqual([
+      { id: "office", name: "office", common: false },
+      { id: "sales", name: "sales", common: false },
+    ]);
+  });
+
+  it("brings the entries each person was given", async () => {
+    const { request } = api({
+      body: {
+        floors: ["office"],
+        people: [{ ...ana, access: ["hr"], canEnter: ["office", "hr"] }],
+      },
+    });
+    expect((await fetchPeople(request, base))?.people[0]).toMatchObject({
+      access: ["hr"],
+    });
+  });
+
+  it("works out where somebody may enter: common rooms, their own as head, everything as admin, and their entries", () => {
+    expect(canEnterFloor(person({}), floorInfo[0])).toBe(true);
+    expect(canEnterFloor(person({}), floorInfo[1])).toBe(false);
+    expect(canEnterFloor(person({ access: ["hr"] }), floorInfo[1])).toBe(true);
+    expect(canEnterFloor(person({ headOf: ["lab"] }), floorInfo[2])).toBe(true);
+    expect(canEnterFloor(person({ headOf: ["lab"] }), floorInfo[1])).toBe(
+      false,
+    );
+    expect(canEnterFloor(person({ isAdmin: true }), floorInfo[1])).toBe(true);
+  });
+
+  it("says when the checkbox is not for changing: everything that already lets somebody in", () => {
+    expect(entryIsFixed(person({}), floorInfo[0])).toBe(true);
+    expect(entryIsFixed(person({ isAdmin: true }), floorInfo[1])).toBe(true);
+    expect(entryIsFixed(person({ headOf: ["hr"] }), floorInfo[1])).toBe(true);
+    expect(entryIsFixed(person({}), floorInfo[1])).toBe(false);
+  });
+
+  it("gives and takes away an entry in the list without changing the one it was given", () => {
+    const people = [person({ id: "user_ana" }), person({ id: "user_beto" })];
+    const given = withAccess(people, "user_ana", "hr", true);
+    expect(given[0].access).toEqual(["hr"]);
+    expect(given[1].access).toEqual([]);
+    expect(people[0].access).toEqual([]);
+    expect(withAccess(given, "user_ana", "hr", false)[0].access).toEqual([]);
+    expect(withAccess(given, "user_ana", "hr", true)[0].access).toEqual(["hr"]);
   });
 });

@@ -15,14 +15,76 @@ development-only tool.
 
 ## 2. Floors
 
-A floor is a layout (furniture and models), a Colyseus room, and a name. Rooms are already one per
-floor: the room name is the floor.
+A floor is a layout (furniture and models), a Colyseus room, and a name. It is also called a
+"room" in the game. Floors are rows of the `floors` table (`id`, `name`, `common`, `created_at`);
+the first one, `office` ("Main office"), is seeded by the migrations and is **common**: everybody in
+the company may enter it. It is also where a player goes who does not say which floor they want (an
+older client, the lite screen).
 
-- **Floor id**: a short slug (`marketing`, `dev`). It is the room name and the key of its layout.
+- **Floor id**: a short slug (`marketing`, `dev`): lowercase letters, digits and single hyphens, up
+  to 32 characters, never a reserved word (`admin`, `api`, `lobby`…; see `shared/floors.ts`). It is
+  the key of its layout, its lock, its heads and its entries. The name is free text (40 characters,
+  cleaned).
+- **One game room per floor.** The server defines one room type and `filterBy(["floor"])`: the
+  `floor` in the join options picks the room, and makes one when there is none. We chose that over
+  one room name per floor because floors are made while the server runs (no registration at
+  start-up, nothing to keep in step between processes), and each floor still has its own state, chat,
+  roster, seats, boards, lock and 30-player limit. A static `onAuth` (`chooseFloor`) runs before the
+  room is looked for: it fills in the common floor when the player says none (so an old and a new
+  client share the room) and refuses a floor that does not exist, so nothing can create a room for
+  one. The room then checks again, on its own floor, who may enter (this is what stops somebody who
+  joins a room by its id while asking for another floor).
+- **Voice is per floor.** The LiveKit rooms are `office` and `office-<zone>` for the main office (as
+  they always were) and `floor.<id>` and `floor.<id>.<zone>` for the others; no id or zone can turn
+  into another floor's name. Chat, roster, presence and seats are per room already.
 - **Layout per floor**: the same data as today (`FurnitureItem[]` plus `PropPlacement[]`), with the
   same validator (`findProblems`) and sanitizers, so a stored layout can never hold invalid data.
-- **Shell**: walls, divider, whiteboard and screen are fixed code today; they become data too, per
-  floor, so floors can differ in shape (planned).
+- **Shell**: walls, divider, whiteboard and screen are fixed code today and **every floor shares the
+  same shell and zones**; a new floor starts with the default layout. They become data too, per
+  floor, so floors can differ in shape (planned, "shell as data").
+- **Who may enter** is one pure function, `mayEnterFloor` in `server/floorAccess.ts`: an admin always;
+  anybody on a common floor; the head of that floor; somebody with an entry in `floor_access`;
+  nobody else. With sign-in off everybody may enter every floor. The player is told about the rooms
+  by `GET /account/floors` (members only: `[{id, name, common, canEnter}]`, never who else has an
+  entry).
+- **Losing access while inside**: taking an entry away, or a head, tells the rooms of that floor
+  (`recheckAccess`); the room checks again and sends the person out with code 4008, and the game joins
+  the common floor by itself. Every join checks too. With several server processes the broadcast
+  only reaches the process that handled the request, so the other ones notice at the next join.
+- **Locks, layouts, publishing and "closing for editing"** are all per floor; so are moderation (a head
+  moderates their own floor, admins all) and heads.
+- **Travelling**: the game leaves the room and joins the next with the same name and look, with no
+  first screen in between, and a short "Travelling to …" notice. The **map of rooms** (key `R`, or
+  _Map of rooms_ in the Esc menu) is the main way; the Esc menu also has a **Rooms** list
+  (rooms the person may not enter are disabled, with "Not available. Ask your administrator to visit
+  it."), and the HUD shows the room's name when there is more than one. This is the base for the map.
+  `?floor=<id>` in the link picks the floor to enter (also in lite mode).
+- **The map of rooms** (only when there is more than one room; not in lite mode): a Modal of cards,
+  one per room, the common one first, each a simplified plan drawn in grey. Pointing at or focusing
+  (arrow keys, Home/End) a room the person may enter paints it in colour and shows its name; one
+  they may not enter stays grey and says "This room is not available. If you want to visit it,
+  contact your administrator." The room you are in says "You are here" and closing it just closes
+  the map. Enter or a click travels (`travel` in `App.tsx`, the same notice); the server still
+  decides at the door. Opening it (key `R`, a free letter) frees the mouse on purpose like the
+  chat: it does not open the Esc menu behind it, the click prompt is hidden, Esc closes it and the
+  game takes the mouse back. It is its own lazy chunk (`RoomsMap`, `RoomCard`), and the plan is
+  drawn by the pure `drawPreview` (`src/floors/previewDraw.ts`, tested) into SVG, so no editor code
+  is loaded. Colours are Tailwind classes in `RoomCard/styles.ts`; motion is off with
+  `prefers-reduced-motion`.
+- **Plans for the map**: `GET /account/floors/previews` (`server/floorPreviews.ts`; a separate
+  endpoint, because the room list is asked for every time the menu opens and the plans are bigger
+  and only needed when the map opens). Members only (with sign-in off, everybody). Returns
+  `{previews: [{id, width, depth, walls, glass, zones, items}]}`, every rectangle
+  `[minX, minZ, maxX, maxZ]` in meters to a tenth, made by `previewOf` (`shared/floorPreview.ts`)
+  from the floor's published layout or the default: the shell, the zones and furniture and model
+  footprints only (no model file names, ids of things, names of people; at most 300 footprints per
+  room). Cached in the process for 15 seconds, for everybody (who is asking is still checked on every
+  call). **Rooms a person may not enter still get a plan**, so every member sees their silhouette.
+  If a company would rather hide it, return a blank card for the floors where `canEnter` is false
+  (filter in `createFloorPreviews` by the roles, as `handleFloorList` does) and the card draws a
+  grey empty floor, which is what it already does while plans load or fail.
+- **The editor** edits the floor you are in. The lobby button edits the floor you were last in (the
+  common one at first), and the same goes for entering from the lobby.
 - **Capacity**: each floor keeps its own 30-player limit and its own voice rooms.
 
 _Instead of one room per floor in one process_ (if the building grows): run floors as separate game
@@ -31,11 +93,11 @@ independent when one crashes.
 
 ## 3. People and roles
 
-| Role       | Can do                                                     |
-| ---------- | ---------------------------------------------------------- |
-| Member     | Enter the floors they are allowed into, walk, talk         |
-| Floor head | Everything a member can, plus edit and publish their floor |
-| Admin      | Create floors, assign heads, read the audit log            |
+| Role       | Can do                                                                                                |
+| ---------- | ----------------------------------------------------------------------------------------------------- |
+| Member     | Enter the common floor and the floors they were given, walk, talk                                     |
+| Floor head | Everything a member can, plus enter, edit and publish their floor                                     |
+| Admin      | Enter every floor, create and rename floors, say who may enter each, assign heads, read the audit log |
 
 Floor heads and admins may also moderate (see "Moderation and the audit log" below).
 
@@ -44,7 +106,14 @@ Rules:
 - A floor has **one head role** (the highest rank of that area); who holds it comes from the
   company's directory, not from the game.
 - Editing needs the head role **for that floor**. Being head of marketing gives nothing on sales.
-- Entering is open to the whole company by default; a floor can be restricted to its area.
+- The **common floor** is open to the whole company. Any other floor is restricted: its head
+  and admins enter it, and an admin can give an **entry** to other people (People screen, "Can enter"
+  columns; `POST /admin/floors/<id>/access`). Heads cannot give entries. HR, for instance, gets an
+  entry for every department's floor, or an admin names them as head.
+- Admin API for rooms: `GET/POST /admin/floors` (list, create), `POST /admin/floors/<id>` (rename),
+  `POST /admin/floors/<id>/access {userId, allowed}`. They are recorded in the activity log as
+  `floor.create`, `floor.rename` and `floor.access`. `GET /admin/people` also says, for each person,
+  the entries they were given and every floor they can enter.
 
 _Instead of rank from the company's directory_ (if there is no directory to read): an admin assigns
 heads by hand in a small table. Simpler, but it drifts out of date when people change jobs.
@@ -266,6 +335,34 @@ rebuild that avatar. Who may change it is decided in one place, `mayChangeLook` 
 keep it in the browser. Options (mouse sensitivity, key hints) live in the browser only
 (`visual-office:settings`).
 
+#### The look model
+
+A look (`shared/appearance.ts`) is eleven small integers, each an index into a list: `skin`,
+`hairColor`, `hairStyle`, `shirt`, `pants` (the original five) and the later `facialHair`, `glasses`,
+`headwear`, `top`, `shoes`, `accessory`. Facial hair is painted in the hair colour; a cap or beanie in
+the shirt colour. The Colyseus `Player` schema has the same eleven fields (the newer ones last, so an
+older client still reads the rest), `APPEARANCE_FIELDS` lists them for the client's change listeners and
+`lookOf` copies a look out of a player.
+
+**Compatibility rule: lists only grow at the end, and index 0 of every extra option is the plain one.**
+A look stored without the extra fields (an old `users.appearance` row, an old `localStorage`, a client
+that sends five fields) is valid and means "nothing extra": `parseAppearance` reads a missing extra as 0
+and still rejects one that is present but invalid; `sanitizeAppearance` keeps the player's current extras
+when a client omits them. No migration is needed (the column is `jsonb`). `defaultAppearance` still picks
+only from the prototype's first options, so a name keeps the look it always had.
+
+**How an option is drawn.** `src/game/avatarLook.ts` holds a table of boxes per option (data only, in
+meters, in the avatar's frame), tagged with the part they move with (face, gear over the hair, torso,
+arm) and optionally `fine` (dropped on low quality, `QualityProfile.avatarDetail`) or `top` (a hat hides
+it). `avatarMesh.ts` merges each part's boxes into one vertex-coloured geometry, so every avatar shares
+one material. The face is hidden when a camera takes the head; the gear stays and rises
+(`GEAR_LIFT_ON_SCREEN`). Tests hold every option to the body's bounds, the name tag, the player radius,
+"nothing floating" and a triangle budget.
+
+**To add an option:** append its name to the list in `shared/appearance.ts` (and to `EXTRA_FIELDS` if it
+is a new part, plus the `Player` schema, at the end), add its boxes to the table in `avatarLook.ts`, add
+its label in `src/components/AppearancePicker/consts.ts`. The tests fail until each of those exists.
+
 ### Presence status and emotes
 
 Each player shows what they are doing: available, in a meeting, do not disturb or away. It is the
@@ -451,6 +548,43 @@ _Instead of editing inside the game_ (smaller first step): keep the editor as a 
 page, protected by the same sign-in. It is quicker to build and keeps the game bundle untouched, but
 heads leave the game to edit.
 
+## 7a. Interactions and seats
+
+What can be used in a floor comes from the layout, with no editor changes.
+
+- **Registry** (`shared/interactions.ts`, pure, tested): `interactablesOf({furniture, models})` maps a chair to `sit`, a desk to `computer`, a plant to `inspect` and the `bookshelf.glb` model to `book`. `sceneFor(layout).interactables` carries it, so the client and the server get the same list from the same layout.
+- **Ids** are the kind and the index in the sanitized list the layout holds (`chair:21`, `bookshelf.glb:0`). A layout change can renumber them, which is why seats are released when a layout is published.
+- **Anchors**: a chair's anchor is its seat (middle of the chair, `yaw` = its turn: the sitter faces away from the backrest); the others have a standing spot 0.65 m in front of the piece, facing it. Both follow the piece's rotation. Each interactable also has a 3D `box`.
+- **Aiming** (`aimedInteractable`): a ray from the eyes against the boxes (5 cm of slack), up to 2.5 m, and nothing solid in between (`segmentBlocked`). A whiteboard in view takes the click; F still works at any time. Computers and shelves are client-only: they open a panel (`panelFor`, which also says the `kind`), filled with the floor's administered content (see 7c). `panelUsesMouse` says a computer or a shelf frees the mouse while it is open.
+- **Seat authority**: the client sends `seat {seat: id}` and `stand`; the server answers `seated {seat, x, y, yaw}` or `seatRefused {reason}`. `maySit` (`server/seats.ts`) is the one policy: the seat exists in this room's layout, is a chair, the player is not seated, nobody else holds it, the server's position of the player is within 3 m, and no wall or desk lies between (no sitting through the glass into a private room). `SeatBook` keeps one person per seat. Sitting teleports the player (`MovementValidator.teleport`) and sets `Player.seat`; moves while seated are ignored. Standing uses `standSpot`: the first free place behind, beside or in front of the chair, inside the floor and reachable without crossing a wall, or else the first candidate. Seats are released on stand, on leave and when a layout is published. Requests are limited to one every 300 ms. Zones, voice and chat use the seat position like any other.
+- **Looks**: other clients draw a seated avatar from `Player.seat` (`src/game/seatedPose.ts`: hips on the seat, thighs forward, shins down, arms forward when the chair faces a desk). The local camera drops to a seated eye height and the head turns at most 100 degrees from the chair.
+
+Not done: sofas are not seats; the hint does not know a chair is taken (the server says so); the camera is not animated for plants.
+
+## 7a-bis. How furniture is drawn
+
+What a kind blocks (`shared/furniture.ts`: `CATALOG`, colliders, the boxes `interactions.ts` aims at) and what it looks like are separate. The look never changes where anybody can walk.
+
+- **Look tables** (`src/game/furnitureLook.ts`, pure, no three.js): `lookOf(kind, variant, level)` returns the parts of a kind (boxes and cylinders: size, position, optional pitch/yaw/roll, colour, surface, shadow flag, optional `only: "high"`), measured with the kind turned 0° and its front toward +z, exactly like the catalog. The placement turn is applied by the builder, so every rotation works.
+- **Builder** (`src/game/furnitureMesh.ts`): bakes every part of every piece of the floor, where it stands, into at most four static meshes: solid with shadows, solid without, light panels and screens. Colours are vertex colours, so one `MeshStandardMaterial` serves all paints; there are no textures and nothing runs per frame. `buildOffice(scene, detail)` draws the fixed shell box by box (`FloorScene.shell`) and adds this group; `disposeOffice` frees it.
+- **Detail levels**: `QUALITY_PROFILES[level].furnitureDetail` is `high` or `low`. Parts marked `only: "high"` (keys, mugs, handles, casters, armrests, faucet, fruit, pillows) are left out on low, and `Game.applyLevel` rebuilds the office when auto drops to low or the menu changes the quality. Every piece must stay held up on both levels (low swaps the chair's star base for a disc).
+- **Budget**: `TRIANGLE_BUDGET` in the same file gives the most triangles of each kind at each level. Tests (`furnitureLook.test.ts`, `furnitureMesh.test.ts`) check the budget, that every part stays within 6 cm of the box the kind blocks in all four turns, that nothing floats (each part touches the floor, the ceiling or a part that does; posters hang on the wall), that the chair's seat top is `SEAT_HEIGHT`, that desk screens face their chair, that the plant variants (the order of `PLANT_INFO`) and the poster colours differ, and that the built geometry has exactly the triangles of the table.
+- **Adding a kind or a part**: add it to `CATALOG` (footprint) and to `BUILDERS` in `furnitureLook.ts` (look) and to `TRIANGLE_BUDGET`; the tests tell you what is missing. Keep chair seats at `SEAT_HEIGHT`.
+
+## 7c. Content of computers and shelves
+
+A desk computer shows the **announcements** of the floor it is in; a bookshelf lets people read its **books**. Both are set up in the app, per floor (a room's computers and shelves never show another room's content).
+
+- **Model** (`shared/content.ts`, table `floor_content`, migrations `012_floor_content` and `013_floor_content_floor_index`; two steps because a step is one statement): `id` (uuid text), `floor`, `kind` (`book` or `announcement`, checked by the database), `title`, `author`, `body`, `link`, `pinned`, `position` (next after the highest of its floor and kind), `created_at`, `updated_at`. No foreign key to `floors`: the API checks the floor exists. `ContentStore` has a memory and a Postgres twin (`server/contentStore.ts`, `server/pgContentStore.ts`), tested on both with the same cases.
+- **Limits** (constants in `CONTENT_LIMITS`, tested): title 1 to 80, author 0 to 60 (books only), body 0 to 4000 for a book and 0 to 1000 for an announcement, link optional up to 300 characters, at most 50 books and 50 announcements per floor (the Postgres insert counts and inserts in one statement; the 51st gets 409). Control characters, zero-width and bidirectional format characters are removed; line breaks are kept.
+- **Security:** the text is plain text everywhere. The client renders it as a React text node with `white-space: pre-wrap`: no `dangerouslySetInnerHTML`, no markdown, so `<b>` shows as typed. A link must be an `https://` address without user name or password (`linkProblem`: no `javascript:`, `data:`, `http:`); it is checked on the server when saved and again on the client before it is shown, and opened only when clicked, in a new tab with `rel="noopener noreferrer"`. The audit log records floor, kind and title, never the text or the link.
+- **Policy** (`mayEditContent(actor, floor)` in `server/contentAccess.ts`, the only place): an admin (and the server's own tools) on any floor, the **head of a floor on their own floor**, nobody else. _Choice:_ heads may manage their floor's content, like they already edit their floor's layout. _Alternative:_ admins only, by changing that one function (the lobby button would then also be admin only: `onManageContent` in `AuthRoot`).
+- **Reading** (`server/contentRead.ts`, people who may enter the floor: `mayEnterFloor`): `GET /account/floors/<id>/content` answers `{books: [{id, title, author, link?}], announcements: [{id, title, body, link?, pinned, updatedAt}]}` (pinned first, then the most recently changed); the text of a book only comes from `GET /account/floors/<id>/content/<bookId>` (`{book: {..., body}}`), so the list stays small. 401 and 403 as the room list, 403 for a floor they may not enter, 404 for an unknown floor or book (also a book of another floor, or an announcement id).
+- **Writing** (`server/contentAdmin.ts`, same actor and CORS as the other admin APIs; the body limit of these calls is 24,000 characters): `GET /admin/content` lists the floors this caller may edit; `GET /admin/content?floor=<id>` everything on it with the text; `POST /admin/content` `{floor, kind, title, author?, body?, link?, pinned?}` creates (201); `POST /admin/content/<id>` changes the words that are sent and keeps the rest (the floor and kind cannot change; nothing is written or logged if nothing changed); `POST /admin/content/<id>/delete` (or `DELETE /admin/content/<id>`) removes it. 400 for a body that breaks the limits or has unknown fields (answers `{error, errors: {field: message}}`), 403 for somebody who may not edit that floor (a request with no valid sign-in never reaches it: the admin router answers 403 first), 404 unknown floor or id, 409 for the 51st of a kind. Audit actions `content.create`, `content.update`, `content.delete`, described in the Activity screen. No reorder call yet: books keep the order they were made, announcements show pinned first, then newest.
+- **Client:** `src/content/` (fetch and a 30 second memory cache per floor and book, pure form validators that reuse the shared checks, formatters), the lazy chunk `InteractionScreen` (computer: room name, clock and announcements with a Pinned chip, date and link; shelf: list of books and a reader with Back; loading and retry states; F, Esc or Close put it away), and the lazy admin screen `ContentAdmin` (lobby button **Content**: floor selector, Books and Announcements tabs, table with Edit and Delete with confirmation, editor modal with counters). While a computer or a shelf is open the mouse is let go (`panelUsesMouse`) so it can be clicked and scrolled; clicking the scene or pressing F or Esc closes it and takes the mouse back.
+- The lobby button shows for admins and for whoever may edit the room they last were in (`canEdit`); the screen itself asks the server which floors each person may edit. A head who last stood in another room sees the button after entering their own.
+- _Not done, later:_ rich text (markdown or a small safe subset), images and file uploads (need storage and scanning), reordering, per-book permissions.
+
 ## 7b. Bundle, quality and lite mode
 
 - **Chunks.** `vite.config.ts` (`codeSplitting.groups`) puts `three`, `react`, `clerk` and `colyseus` in their own cacheable chunks. `AppEntry` (`src/App/AppEntry.tsx`) lazy-loads either the 3D office (`App`, with Three.js) or the lite screen, wrapped in `ErrorBoundary` + `LoadFailed` (Reload). The menu shell stays static inside `App`. Before: main chunk 874 kB (267 kB gzip). After: entry chunk 33 kB (12 kB gzip); the largest chunk is `three` at 737 kB. The warning limit stays at 800 kB. The total a desktop downloads on first visit is about the same: the gain is caching and not downloading the 3D code on lite devices.
@@ -465,7 +599,8 @@ Each step is useful on its own.
 2. Sign-in and the verified user on the server (`onAuth`).
 3. Roles: member, head, admin; check them on lock and publish.
 4. Stored layouts with versions; loader with validation and fallback.
-5. Several floors: the directory of floors, the room per floor, a way to move between them (a lift).
+5. ✅ Several floors: the directory of floors, the room per floor, a common floor, who may enter each,
+   and a way to move between them (a list in the menu). Next: the map on top of it.
 6. The editor inside the game for heads, with the audit log.
 7. Later: shell as data, free angle and height, a 3D preview, round footprints.
 
@@ -480,10 +615,14 @@ dozens of companies.
 
 ## 9. Open questions
 
-- Where does rank come from: the company's directory, or a table we maintain?
-- Can a member visit any floor, or only their own area's?
-- Should voice carry between floors (for example, a lift or lobby), or is each floor private?
-- How many floors and people should the first version handle? This decides whether one process is
-  enough.
+- Where does rank come from: the company's directory, or a table we maintain? (Still open: heads
+  are named by hand.)
+- Can a member visit any floor, or only their own area's? **Answered**: the common floor, plus the
+  floors an admin gave them an entry for (and the floors they head). Role groups ("everybody in HR")
+  would be a later layer on top of the entries.
+- Should voice carry between floors? **Answered**: no, each floor has its own voice rooms; the
+  common floor is where everybody can meet.
+- How many floors and people should the first version handle? Each floor is a room of 30; one
+  process runs them all. Several processes are not tested.
 - JIRA (on hold): when it comes back it will be a server-side integration with its own API data and
   a token that never reaches the browser; it is a different mechanism from screen sharing.
