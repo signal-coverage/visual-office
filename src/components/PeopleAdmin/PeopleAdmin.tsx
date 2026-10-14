@@ -7,7 +7,7 @@ import {
   Table,
 } from "@heroui/react";
 import { useEffect, useState } from "react";
-import { FLOOR_ID } from "../../../shared/floors.ts";
+import { COMMON_FLOOR_ID } from "../../../shared/floors.ts";
 import {
   banMinutes,
   DEFAULT_BAN_MINUTES,
@@ -16,11 +16,15 @@ import {
   type ModerationAction,
 } from "../../../shared/moderation.ts";
 import { gameBackend, httpUrlOf } from "../../editor/backend";
+import { setFloorAccess } from "../../floors/floors";
 import { currentServerUrl } from "../../game/serverAddress";
 import {
+  canEnterFloor,
+  entryIsFixed,
   fetchPeople,
   moderatePerson,
   setHead,
+  withAccess,
   withHead,
   type PeopleList,
 } from "../../people/people";
@@ -33,6 +37,11 @@ import {
   CANCEL_LABEL,
   CLOSE_LABEL,
   CONFIRM_LABEL,
+  headColumn,
+  enterColumn,
+  enterLabel,
+  headLabel,
+  ALWAYS_NOTE,
   EMPTY,
   INTRO,
   KICK_LABEL,
@@ -58,7 +67,7 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
   const [{ request, adminBase }] = useState(() => ({
     request: gameBackend({
       serverUrl: currentServerUrl(),
-      floor: FLOOR_ID,
+      floor: COMMON_FLOOR_ID,
       getToken,
       models: [],
     }).request,
@@ -93,6 +102,31 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
       setList((now) =>
         now
           ? { ...now, people: withHead(now.people, userId, floor, !head) }
+          : now,
+      );
+      setProblem(SAVE_ERROR);
+    }
+  };
+
+  const toggleAccess = async (
+    userId: string,
+    floor: string,
+    allowed: boolean,
+  ) => {
+    if (!list) return;
+    setProblem(null);
+    // Shown at once; put back if the server did not do it
+    setList({
+      ...list,
+      people: withAccess(list.people, userId, floor, allowed),
+    });
+    if (!(await setFloorAccess(request, adminBase, floor, userId, allowed))) {
+      setList((now) =>
+        now
+          ? {
+              ...now,
+              people: withAccess(now.people, userId, floor, !allowed),
+            }
           : now,
       );
       setProblem(SAVE_ERROR);
@@ -178,9 +212,17 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
                   <Table.Column id="person" isRowHeader>
                     Person
                   </Table.Column>
-                  {list.floors.map((floor) => (
-                    <Table.Column key={floor} id={floor}>
-                      Head of {floor}
+                  {list.floorInfo.map((floor) => (
+                    <Table.Column key={floor.id} id={floor.id}>
+                      {headColumn(floor.name)}
+                    </Table.Column>
+                  ))}
+                  {list.floorInfo.map((floor) => (
+                    <Table.Column
+                      key={`enter-${floor.id}`}
+                      id={`enter-${floor.id}`}
+                    >
+                      {enterColumn(floor.name)}
                     </Table.Column>
                   ))}
                   <Table.Column id="moderation">
@@ -205,13 +247,13 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
                           <div className={styles.email}>{person.email}</div>
                         )}
                       </Table.Cell>
-                      {list.floors.map((floor) => (
-                        <Table.Cell key={floor}>
+                      {list.floorInfo.map((floor) => (
+                        <Table.Cell key={floor.id}>
                           <Checkbox
-                            aria-label={`${person.name} is head of ${floor}`}
-                            isSelected={person.headOf.includes(floor)}
+                            aria-label={headLabel(person.name, floor.name)}
+                            isSelected={person.headOf.includes(floor.id)}
                             onChange={(head) =>
-                              void toggle(person.id, floor, head)
+                              void toggle(person.id, floor.id, head)
                             }
                           >
                             <Checkbox.Content>
@@ -220,6 +262,27 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
                               </Checkbox.Control>
                             </Checkbox.Content>
                           </Checkbox>
+                        </Table.Cell>
+                      ))}
+                      {list.floorInfo.map((floor) => (
+                        <Table.Cell key={`enter-${floor.id}`}>
+                          <Checkbox
+                            aria-label={enterLabel(person.name, floor.name)}
+                            isSelected={canEnterFloor(person, floor)}
+                            isDisabled={entryIsFixed(person, floor)}
+                            onChange={(allowed) =>
+                              void toggleAccess(person.id, floor.id, allowed)
+                            }
+                          >
+                            <Checkbox.Content>
+                              <Checkbox.Control>
+                                <Checkbox.Indicator />
+                              </Checkbox.Control>
+                            </Checkbox.Content>
+                          </Checkbox>
+                          {entryIsFixed(person, floor) && (
+                            <span className={styles.always}>{ALWAYS_NOTE}</span>
+                          )}
                         </Table.Cell>
                       ))}
                       <Table.Cell>

@@ -14,10 +14,16 @@ export const AUDIT_ACTIONS = [
   "layout.mark",
   "head.assign",
   "head.remove",
+  "floor.create",
+  "floor.rename",
+  "floor.access",
   "settings.allow_name_edit",
   "company.setup",
   "calendar.set",
   "calendar.clear",
+  "content.create",
+  "content.update",
+  "content.delete",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -85,6 +91,23 @@ export function describeAudit(entry: AuditEntry): string {
       return `${actor} named ${who} head of ${where}`;
     case "head.remove":
       return `${actor} removed ${who} as head of ${where}`;
+    case "floor.create": {
+      const name = typeof detail.name === "string" ? detail.name : null;
+      return name
+        ? `${actor} made the room ${name} (${where})`
+        : `${actor} made the room ${where}`;
+    }
+    case "floor.rename": {
+      const from = typeof detail.from === "string" ? detail.from : null;
+      const to = typeof detail.to === "string" ? detail.to : null;
+      return from && to
+        ? `${actor} renamed the room ${from} to ${to} (${where})`
+        : `${actor} renamed the room ${where}`;
+    }
+    case "floor.access":
+      return detail.allowed === true
+        ? `${actor} let ${who} enter ${where}`
+        : `${actor} stopped ${who} entering ${where}`;
     case "settings.allow_name_edit":
       return detail.allow === true
         ? `${actor} let people choose their own name`
@@ -98,6 +121,27 @@ export function describeAudit(entry: AuditEntry): string {
       return entry.action === "calendar.set"
         ? `${actor} set the calendar of ${room}`
         : `${actor} removed the calendar of ${room}`;
+    }
+    case "content.create":
+    case "content.update":
+    case "content.delete": {
+      const kind =
+        detail.kind === "book" || detail.kind === "announcement"
+          ? detail.kind
+          : null;
+      const title = typeof detail.title === "string" ? detail.title : null;
+      const verb = {
+        "content.create": "added",
+        "content.update": "changed",
+        "content.delete": "removed",
+      }[entry.action];
+      const preposition = {
+        "content.create": "to",
+        "content.update": "of",
+        "content.delete": "from",
+      }[entry.action];
+      const what = kind && title ? `the ${kind} "${title}"` : "something";
+      return `${actor} ${verb} ${what} ${preposition} ${where}`;
     }
     default:
       return `${actor} did ${entry.action}${floor ? ` on ${floor}` : ""}`;

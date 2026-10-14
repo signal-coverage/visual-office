@@ -1,6 +1,6 @@
 import { Button, Description, Label, Modal, Switch } from "@heroui/react";
 import { useEffect, useState } from "react";
-import { FLOOR_ID } from "../../../shared/floors.ts";
+import { COMMON_FLOOR_ID } from "../../../shared/floors.ts";
 import {
   fetchAllowNameEdit,
   saveAllowNameEdit,
@@ -27,7 +27,7 @@ export function CompanySettings({ getToken, onClose }: CompanySettingsProps) {
   const [{ request, adminBase }] = useState(() => ({
     request: gameBackend({
       serverUrl: currentServerUrl(),
-      floor: FLOOR_ID,
+      floor: COMMON_FLOOR_ID,
       getToken,
       models: [],
     }).request,

@@ -449,3 +449,21 @@ describe("VoiceAdmin.setCanSpeak", () => {
     ).rejects.toThrow("LiveKit is down");
   });
 });
+
+describe("createVoiceToken on a floor", () => {
+  it("grants the voice room of that floor, not the main office's", async () => {
+    const config = {
+      url: "ws://x",
+      apiKey: "devkey",
+      apiSecret: "secret!secret!secret!secret!secret!",
+    };
+    const claims = await new TokenVerifier(
+      config.apiKey,
+      config.apiSecret,
+    ).verify(
+      await createVoiceToken(config, "s", "Alice", "meeting", true, "hr"),
+    );
+    expect(claims.video?.room).toBe(voiceRoomName("meeting", "", "hr"));
+    expect(claims.video?.room).not.toBe(voiceRoomName("meeting"));
+  });
+});

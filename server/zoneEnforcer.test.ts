@@ -103,3 +103,27 @@ describe("enforceZones", () => {
     expect(removed).toEqual([[voiceRoomName("meeting"), "beto"]]);
   });
 });
+
+describe("enforceZones on a floor", () => {
+  it("looks only at the voice rooms of that floor", async () => {
+    const asked: string[] = [];
+    const admin = {
+      listParticipants: async (room: string) => {
+        asked.push(room);
+        return [];
+      },
+      removeParticipant: async () => {},
+    };
+    await enforceZones(
+      admin,
+      [null, "meeting"],
+      () => undefined,
+      "acme-",
+      "hr",
+    );
+    expect(asked).toEqual([
+      voiceRoomName(null, "acme-", "hr"),
+      voiceRoomName("meeting", "acme-", "hr"),
+    ]);
+  });
+});

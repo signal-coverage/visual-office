@@ -621,3 +621,22 @@ describe("handleLayoutAdmin audit", () => {
     expect(recorded).toEqual([]);
   });
 });
+
+describe("floors made while the server runs", () => {
+  it("are known to the layout API when the list is asked for each time", async () => {
+    const floors = ["office"];
+    const deps = {
+      layouts: new MemoryLayoutStore(),
+      locks: new FloorLocks(),
+      knownFloors: async () => floors,
+    };
+    const ask = () =>
+      handleLayoutAdmin(
+        { method: "GET", path: "/admin/floors/hr/layout" },
+        deps,
+      );
+    expect((await ask())?.body.error).toBe("No such floor.");
+    floors.push("hr");
+    expect((await ask())?.body.error).not.toBe("No such floor.");
+  });
+});

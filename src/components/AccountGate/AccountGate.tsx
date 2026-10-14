@@ -7,7 +7,7 @@ import {
 } from "@clerk/react";
 import { Alert, Button, Card } from "@heroui/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { FLOOR_ID } from "../../../shared/floors.ts";
+import { COMMON_FLOOR_ID } from "../../../shared/floors.ts";
 import {
   fetchSession,
   registerCompany,
@@ -110,7 +110,7 @@ export function AccountGate({ children }: AccountGateProps) {
   const [{ request, serverUrl }] = useState(() => ({
     request: gameBackend({
       serverUrl: currentServerUrl(),
-      floor: FLOOR_ID,
+      floor: COMMON_FLOOR_ID,
       getToken,
       models: [],
     }).request,

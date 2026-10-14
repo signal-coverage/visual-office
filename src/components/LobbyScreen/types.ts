@@ -25,5 +25,11 @@ export interface LobbyScreenProps {
   onOpenActivity?: () => void;
   /** Opens where the calendars of the rooms are set: only offered to admins. */
   onOpenCalendars?: () => void;
+  /** The room the player enters (and edits) when it is not the common one: the last they were in. */
+  roomName?: string | null;
+  /** Opens the screen where rooms are made and named: only offered to admins. */
+  onManageRooms?: () => void;
+  /** Opens the screen where books and announcements are set up: only offered to admins and heads of floors. */
+  onManageContent?: () => void;
   onJoin: (name: string, appearance: Appearance) => void;
 }

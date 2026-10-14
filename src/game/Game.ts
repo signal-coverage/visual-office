@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { MAP_KEY } from "../floors/consts";
 import type { Appearance } from "../../shared/appearance.ts";
 import {
   CHAT_REFUSAL_TEXT,
@@ -27,14 +28,28 @@ import {
 } from "../../shared/presence.ts";
 import { moveWithCollisions } from "../../shared/collision.ts";
 import {
+  aimedInteractable,
+  hintFor,
+  panelFor,
+  panelUsesMouse,
+  type Interactable,
+  type InteractionKind,
+  type PanelContent,
+} from "../../shared/interactions.ts";
+import { SEAT_REFUSAL_TEXT } from "../../shared/seats.ts";
+import {
   MOVE_SEND_RATE,
   PLAYER_RADIUS,
   RUN_SPEED,
   SPAWN,
   WALK_SPEED,
 } from "../../shared/constants.ts";
-import type { LayoutMessage } from "../../shared/floors.ts";
-import { OFFICE_COLLIDERS, sceneFor } from "../../shared/layout.ts";
+import type { FloorMessage, LayoutMessage } from "../../shared/floors.ts";
+import {
+  OFFICE_COLLIDERS,
+  OFFICE_INTERACTABLES,
+  sceneFor,
+} from "../../shared/layout.ts";
 import { buildRoster, type Roster } from "../../shared/roster.ts";
 import { SCREENS } from "../../shared/screens.ts";
 import { randomSpawn } from "../../shared/spawn.ts";
@@ -45,6 +60,7 @@ import { FpsMeter } from "./FpsMeter";
 import { isSoftwareRenderer, readGpuName } from "./gpu";
 import { shouldDropKeys } from "./lockKeys";
 import { connect, type Connection } from "./network";
+import type { DetailLevel } from "./furnitureLook";
 import { buildOffice, disposeOffice } from "./office";
 import { loadProps } from "./props";
 import {
@@ -58,7 +74,13 @@ import {
   type QualityChoice,
   type QualityLevel,
 } from "./quality";
+import { lerp } from "./math";
 import { RemotePlayers } from "./RemotePlayers";
+import {
+  clampSeatedYaw,
+  SEATED_EYE_HEIGHT,
+  STANDING_EYE_HEIGHT,
+} from "./seatedPose";
 import { ScreenDisplay } from "./ScreenDisplay";
 import { Whiteboards, type BoardAim } from "./Whiteboards";
 import type { VoiceState } from "./VoiceChat";
@@ -92,14 +114,22 @@ export interface GameEvents {
    * `code` says why, e.g. FLOOR_CLOSED_CODE when the floor closed for editing.
    */
   onDisconnected: (code: number) => void;
+  /** Which floor we are on, as the server says when we join. */
+  onFloor: (floor: FloorMessage) => void;
   /** The floor will close for editing in this many seconds, or (null) it will not after all. */
   onFloorClosing: (seconds: number | null) => void;
   /** What we chose to show as doing changed (with the key, or the menu): the part of the status that is ours to set. */
   onStatusChosen: (status: Status) => void;
+  /** The key of the map of rooms was pressed. */
+  onMapKey: () => void;
   /** The emote key is held (true) or let go (false): the list of emotes is shown meanwhile. */
   onEmoteKey: (held: boolean) => void;
   /** Whether the server lets us moderate this floor: it decides, and checks again on every action. */
   onModerator: (can: boolean) => void;
+  /** What clicking would do where we look (or how to get up while sitting), or null when there is nothing to use. */
+  onInteractHint: (hint: string | null) => void;
+  /** What we used (a computer, a shelf, a plant) is to be shown, or null when it is closed. */
+  onInteractPanel: (panel: PanelContent | null) => void;
 }
 
 /** Whether a screen is being shared in our call, and by whom. */
@@ -149,10 +179,14 @@ const NO_EVENTS: GameEvents = {
   onCamera: () => {},
   onReconnecting: () => {},
   onDisconnected: () => {},
+  onFloor: () => {},
   onFloorClosing: () => {},
   onStatusChosen: () => {},
+  onMapKey: () => {},
   onEmoteKey: () => {},
   onModerator: () => {},
+  onInteractHint: () => {},
+  onInteractPanel: () => {},
 };
 
 const SEND_INTERVAL = 1 / MOVE_SEND_RATE;
@@ -166,13 +200,37 @@ const STATUS_KEY = "KeyZ";
 const KNOCK_KEY = "KeyK";
 /** Held, the number keys make a gesture instead of choosing a pen. */
 const EMOTE_KEY = "KeyE";
+
 /** The least time between two status changes we send: a little more than the server's own wait. */
 const STATUS_SEND_GAP_MS = 500;
 /** Wipes the board you are pointing at. */
 const CLEAR_BOARD_KEY = "Backspace";
-const EYE_HEIGHT = 1.65;
+/** Uses what we look at, or gets up when we sit. */
+const INTERACT_KEY = "KeyF";
+const STAND_KEY = "Space";
+/** Pressing one of these gets us up from a seat and closes what we are reading. */
+const MOVE_KEYS: ReadonlySet<string> = new Set([
+  "KeyW",
+  "KeyA",
+  "KeyS",
+  "KeyD",
+]);
+const STAND_HINT = "F or Space · Stand up";
+/** How far a seated person turns their head from the way the chair faces. */
+const SEAT_LOOK_LIMIT = (100 * Math.PI) / 180;
+/** How quickly the eyes go down to the seat and up again. */
+const EYE_EASING = 10;
 const MOUSE_SENSITIVITY = 0.002;
 const MAX_PITCH = Math.PI / 2 - 0.05;
+
+/** For each seat of a layout, whether it faces a desk. */
+function seatsOf(interactables: Interactable[]): Map<string, boolean> {
+  return new Map(
+    interactables.flatMap((entry) =>
+      entry.seat ? [[entry.id, entry.seat.atDesk] as const] : [],
+    ),
+  );
+}
 
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
@@ -181,11 +239,27 @@ export class Game {
   private lastFrameTime = performance.now();
   private readonly keys = new Set<string>();
   // What stands in the floor: the default every build carries until the server says otherwise
-  private office = buildOffice();
+  private office: THREE.Group;
+  /** What the office was last built from, and with how much detail. */
+  private officeScene: Parameters<typeof buildOffice>[0];
+  private officeDetail: DetailLevel;
   private props = loadProps();
   private colliders = OFFICE_COLLIDERS;
+  private interactables = OFFICE_INTERACTABLES;
+  /** The seat we sit in, as the server put us there; null while standing. */
+  private seat: { id: string; yaw: number } | null = null;
+  /** What we look at and could use, and the hint we told the screen about it. */
+  private interactAim: Interactable | null = null;
+  private shownHint: string | null = null;
+  private panelOpen = false;
+  /** What the open panel is about: a computer or a shelf has the mouse free. */
+  private panelKind: InteractionKind | null = null;
+  private eyeHeight = STANDING_EYE_HEIGHT;
   /** The stored layout version drawn now, or null for the default. */
-  private layoutVersion: number | null = null;
+  /** Which layout is drawn: "default" for the one every build carries (the same on every floor), else the floor and its version. */
+  private layoutKey = "default";
+  /** The floor we are on, so a published version of one floor is not taken for the same version of another. */
+  private floorId = "";
   private position: { x: number; z: number };
   private yaw = 0;
   private pitch = 0;
@@ -241,6 +315,8 @@ export class Game {
       softwareRendering: options.softwareRendering,
       autoLevel: this.auto.level,
     });
+    this.officeDetail = QUALITY_PROFILES[this.level].furnitureDetail;
+    this.office = buildOffice(this.officeScene, this.officeDetail);
     // On machines with two graphics cards the browser picks the weak one by default
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -252,7 +328,11 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
     this.position = randomSpawn();
     this.yaw = SPAWN.yaw;
-    this.remotePlayers = new RemotePlayers(this.scene);
+    this.remotePlayers = new RemotePlayers(
+      this.scene,
+      QUALITY_PROFILES[this.level].avatarDetail,
+    );
+    this.remotePlayers.setSeats(seatsOf(this.interactables));
     this.screen = new ScreenDisplay(SCREENS[0]);
     this.scene.add(this.screen.group);
     this.call = new CallController({
@@ -302,9 +382,15 @@ export class Game {
     appearance: Appearance,
     events: GameEvents,
     token: string | null = null,
+    /** The floor to enter: the common one unless told another. */
+    floor?: string,
   ) {
     this.events = events;
     this.area = null; // so the new listener hears where we already are
+    this.seat = null;
+    this.interactAim = null;
+    this.shownHint = null;
+    this.panelOpen = false;
     this.chosenStatus = DEFAULT_STATUS;
     this.idle = false;
     this.lastInputAt = performance.now();
@@ -364,12 +450,33 @@ export class Game {
           if (id !== this.connection?.sessionId)
             this.remotePlayers.playEmote(id, emote);
         },
+        onFloor: (floor) => {
+          this.floorId = floor.id;
+          if (!this.disposed) events.onFloor(floor);
+        },
         onLayout: (layout) => {
           if (!this.disposed) this.applyLayout(layout);
         },
         onModerator: (can) => {
           if (!this.disposed) events.onModerator(can);
         },
+        onSeated: ({ seat, x, z, yaw }) => {
+          this.position = { x, z };
+          if (seat) {
+            this.seat = { id: seat, yaw };
+            this.yaw = yaw;
+            this.closeInteraction();
+            this.lastSent = { x, z, yaw };
+          } else {
+            this.seat = null;
+            // The server has our position but still the way the chair faced: say where we look
+            this.lastSent = { x, z, yaw: NaN };
+          }
+        },
+        onSeatRefused: (reason) => {
+          if (reason !== "cooldown") events.onNotice(SEAT_REFUSAL_TEXT[reason]);
+        },
+        onSeat: (id) => this.remotePlayers.applySeat(id),
         onModerated: (reply) => {
           if (!this.disposed) events.onNotice(moderationReplyText(reply));
         },
@@ -387,6 +494,7 @@ export class Game {
         onDisconnected: (code) => {
           this.connection = null;
           this.reconnecting = false;
+          this.seat = null;
           this.remotePlayers.dispose();
           this.whiteboards.setZone(null);
           if (this.disposed) return;
@@ -396,6 +504,7 @@ export class Game {
         },
       },
       token,
+      floor,
     );
     // dispose() may have run while we were connecting (e.g. React StrictMode)
     if (this.disposed) {
@@ -407,16 +516,22 @@ export class Game {
 
   /** Draws what the server says stands in the floor, and blocks where it blocks. */
   private applyLayout(layout: LayoutMessage) {
-    if (layout.version === this.layoutVersion) return;
+    const key =
+      layout.version === null ? "default" : `${this.floorId}:${layout.version}`;
+    if (key === this.layoutKey) return;
     const floor = sceneFor(layout);
     this.scene.remove(this.office, this.props.group);
     disposeOffice(this.office);
     this.props.dispose();
-    this.office = buildOffice(floor);
+    this.officeScene = floor;
+    this.office = buildOffice(floor, this.officeDetail);
     this.props = loadProps(floor.models);
     this.scene.add(this.office, this.props.group);
     this.colliders = floor.colliders;
-    this.layoutVersion = layout.version;
+    this.interactables = floor.interactables;
+    this.remotePlayers.setSeats(seatsOf(floor.interactables));
+    this.interactAim = null;
+    this.layoutKey = key;
   }
 
   /** Says something to everybody, to the people nearby, or (with `to`, a session id) to one person. The server decides who receives it. */
@@ -460,6 +575,54 @@ export class Game {
   /** Asks the server, as a moderator, to act on somebody in the room. The server decides whether we may. */
   moderate(action: ModerationAction, target: string, minutes?: number) {
     this.connection?.sendModerate(action, target, minutes);
+  }
+
+  /** Gets up from the seat, if we sit. The server puts us on our feet and says where. */
+  standUp() {
+    if (this.seat) this.connection?.sendStand();
+  }
+
+  /** Whether something we used is on the screen. */
+  get interactionOpen(): boolean {
+    return this.panelOpen;
+  }
+
+  /** Whether what is open is for clicking and scrolling, so the mouse is not captured while it is. */
+  get interactionUsesMouse(): boolean {
+    return (
+      this.panelOpen &&
+      this.panelKind !== null &&
+      panelUsesMouse(this.panelKind)
+    );
+  }
+
+  closeInteraction() {
+    if (!this.panelOpen) return;
+    this.panelOpen = false;
+    this.panelKind = null;
+    this.events.onInteractPanel(null);
+  }
+
+  /** F: get up, or close what is open, or use what we look at. */
+  private interact() {
+    if (this.seat) return this.standUp();
+    if (this.panelOpen) return this.closeInteraction();
+    const aim = this.interactAim;
+    if (!aim) return;
+    if (aim.kind === "sit") {
+      this.connection?.sendSeat(aim.id);
+      return;
+    }
+    const panel = panelFor(aim);
+    this.panelOpen = true;
+    this.panelKind = panel.kind;
+    this.events.onInteractPanel(panel);
+  }
+
+  /** A click does the same, except at a whiteboard, where it draws, and while sitting. */
+  private interactFromClick() {
+    if (this.boardAim || this.seat) return;
+    this.interact();
   }
 
   /** Leaves the office on purpose. The game is told as for any other disconnection. */
@@ -507,7 +670,16 @@ export class Game {
   }
 
   private applyLevel() {
-    const { shadows } = QUALITY_PROFILES[this.level];
+    const { shadows, furnitureDetail, avatarDetail } =
+      QUALITY_PROFILES[this.level];
+    this.remotePlayers.setDetail(avatarDetail);
+    if (furnitureDetail !== this.officeDetail) {
+      this.scene.remove(this.office);
+      disposeOffice(this.office);
+      this.officeDetail = furnitureDetail;
+      this.office = buildOffice(this.officeScene, furnitureDetail);
+      this.scene.add(this.office);
+    }
     if (this.sun) {
       this.sun.castShadow = shadows;
       if (!shadows) {
@@ -596,6 +768,10 @@ export class Game {
     this.lastInputAt = performance.now();
     if (!this.isLocked) return;
     if (!e.repeat) {
+      if (MOVE_KEYS.has(e.code)) {
+        this.standUp();
+        this.closeInteraction();
+      }
       const emote = this.emoteKeyHeld ? emoteByKey(e.code) : null;
       if (emote) this.emote(emote);
       else if (e.code === EMOTE_KEY) this.setEmoteKeyHeld(true);
@@ -607,7 +783,10 @@ export class Game {
       else if (e.code === CAMERA_KEY) this.toggleCamera();
       else if (e.code === SCREEN_KEY) this.call.toggleScreenShare();
       else if (e.code === KNOCK_KEY) this.knock();
+      else if (e.code === MAP_KEY) this.events.onMapKey();
       else if (e.code === CLEAR_BOARD_KEY) this.whiteboards.clearAimed();
+      else if (e.code === INTERACT_KEY) this.interact();
+      else if (e.code === STAND_KEY) this.standUp();
       else {
         // 1..7 pick the pen
         const pen = /^Digit([1-9])$/.exec(e.code);
@@ -636,7 +815,9 @@ export class Game {
 
   private readonly onMouseDown = (e: MouseEvent) => {
     this.lastInputAt = performance.now();
-    if (this.isLocked && e.button === 0) this.drawing = true;
+    if (!this.isLocked || e.button !== 0) return;
+    this.drawing = true;
+    this.interactFromClick();
   };
   private readonly onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) this.drawing = false;
@@ -648,6 +829,8 @@ export class Game {
     this.yaw -= e.movementX * this.mouseSensitivity;
     this.pitch -= e.movementY * this.mouseSensitivity;
     this.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.pitch));
+    if (this.seat)
+      this.yaw = clampSeatedYaw(this.yaw, this.seat.yaw, SEAT_LOOK_LIMIT);
   };
 
   private readonly resize = () => {
@@ -661,7 +844,7 @@ export class Game {
   };
 
   private update(dt: number) {
-    if (this.isLocked) {
+    if (this.isLocked && !this.seat) {
       const forward =
         Number(this.keys.has("KeyW")) - Number(this.keys.has("KeyS"));
       const strafe =
@@ -683,7 +866,12 @@ export class Game {
       }
     }
 
-    this.camera.position.set(this.position.x, EYE_HEIGHT, this.position.z);
+    this.eyeHeight = lerp(
+      this.eyeHeight,
+      this.seat ? SEATED_EYE_HEIGHT : STANDING_EYE_HEIGHT,
+      1 - Math.exp(-EYE_EASING * dt),
+    );
+    this.camera.position.set(this.position.x, this.eyeHeight, this.position.z);
     this.camera.rotation.set(this.pitch, this.yaw, 0, "YXZ");
 
     this.remotePlayers.update(dt, {
@@ -694,6 +882,7 @@ export class Game {
     });
     this.updateArea();
     this.updateBoards(dt);
+    this.updateInteractions();
     this.updateIdle();
     this.sendPositionIfChanged(dt);
     this.call.update(dt, this.position, (visit) =>
@@ -723,7 +912,7 @@ export class Game {
     this.camera.getWorldDirection(this.lookDirection);
     const aim = this.whiteboards.update(
       dt,
-      { x: this.position.x, y: EYE_HEIGHT, z: this.position.z },
+      { x: this.position.x, y: this.eyeHeight, z: this.position.z },
       this.lookDirection,
       this.drawing && this.isLocked,
     );
@@ -736,9 +925,33 @@ export class Game {
     }
   }
 
+  /** Aims at what can be used and tells the screen what clicking would do. A whiteboard in view takes the click, so no hint then. */
+  private updateInteractions() {
+    let aim: Interactable | null = null;
+    let hint: string | null = null;
+    if (this.isLocked && !this.boardAim) {
+      if (this.seat) hint = STAND_HINT;
+      else if (!this.panelOpen) {
+        const hit = aimedInteractable(
+          this.interactables,
+          { x: this.position.x, y: this.eyeHeight, z: this.position.z },
+          this.lookDirection,
+          this.colliders,
+        );
+        aim = hit?.interactable ?? null;
+        hint = aim ? hintFor(aim) : null;
+      }
+    }
+    this.interactAim = aim;
+    if (hint === this.shownHint) return;
+    this.shownHint = hint;
+    this.events.onInteractHint(hint);
+  }
+
   private sendPositionIfChanged(dt: number) {
     this.sinceLastSend += dt;
     if (!this.connection || this.awaitingSpawn || this.reconnecting) return;
+    if (this.seat) return;
     if (this.sinceLastSend < SEND_INTERVAL) return;
 
     const { x, z } = this.position;

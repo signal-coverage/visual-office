@@ -1,9 +1,5 @@
 import * as THREE from "three";
-import {
-  appearanceColors,
-  HAIR_STYLES,
-  type Appearance,
-} from "../../shared/appearance.ts";
+import { appearanceColors, type Appearance } from "../../shared/appearance.ts";
 import {
   EMOTE_DURATION_MS,
   EMOTE_ICONS,
@@ -13,23 +9,21 @@ import {
 import { STATUS_COLORS, type Status } from "../../shared/presence.ts";
 import {
   ARM,
-  EYES,
   faceCrop,
-  HAIR,
-  hairBackZ,
-  hairCenter,
-  HAND,
-  HEAD,
+  GEAR_LIFT_ON_SCREEN,
   HEAD_CENTER,
   LEG,
   MIRROR_VIDEO_PANELS,
   NAME_TAG,
+  SHOE,
   SHOULDER_Y,
-  TORSO,
-  TORSO_CENTER,
   VIDEO_FACE,
 } from "./avatarLayout";
+import { lookPieces, type Placed, type PlacedAnchor } from "./avatarLook";
+import { partGeometry } from "./avatarMesh";
+import type { DetailLevel } from "./furnitureLook";
 import { emotePose } from "./emotePose";
+import { seatedPose, type SeatedPose } from "./seatedPose";
 import { STRIDE_RADIANS_PER_METER, walkPose } from "./walkPose";
 
 export interface Avatar {
@@ -42,10 +36,11 @@ export interface Avatar {
   setStatus: (status: Status) => void;
   /** Makes a gesture: the arms move and an icon floats above the head for a few seconds. */
   playEmote: (emote: Emote) => void;
+  /** Sits the avatar down (with the arms to a desk, or not), or stands it up with null. */
+  setSeat: (atDesk: boolean | null) => void;
   dispose: () => void;
 }
 
-const EYE_COLOR = 0x222222;
 const SURFACE_ROUGHNESS = 0.7;
 const DEFAULT_VIDEO_ASPECT = 4 / 3;
 /** Index of the -z face of a BoxGeometry: the one that looks where the avatar looks. */
@@ -127,93 +122,123 @@ function makeEmoteIcon(emote: Emote) {
 }
 
 /**
+ * Every avatar is drawn with this one material: each box carries its own colour
+ * as a vertex colour (see avatarMesh.ts). It belongs to nobody, so no avatar
+ * disposes it.
+ */
+const AVATAR_MATERIAL = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: SURFACE_ROUGHNESS,
+});
+
+const solid = (
+  size: readonly [number, number, number],
+  at: readonly [number, number, number],
+  color: number,
+) => {
+  const mesh = new THREE.Mesh(
+    partGeometry([
+      { anchor: "torso", size, at, color, fine: false, body: true },
+    ])!,
+    AVATAR_MATERIAL,
+  );
+  mesh.castShadow = true;
+  return mesh;
+};
+
+/** The merged boxes of one part of the body, or null when the look puts nothing there. */
+function partMesh(pieces: readonly Placed[], anchor: PlacedAnchor) {
+  const geometry = partGeometry(pieces.filter((p) => p.anchor === anchor));
+  if (!geometry) return null;
+  const mesh = new THREE.Mesh(geometry, AVATAR_MATERIAL);
+  mesh.castShadow = true;
+  return mesh;
+}
+
+/**
  * A low-poly person built from boxes, painted and styled as `appearance` says.
- * Facing -z at rotation 0, like the camera.
+ * Facing -z at rotation 0, like the camera. `detail` "low" leaves out the
+ * smallest things they wear.
  */
 export function createAvatar(
   name: string,
   appearance: Appearance,
   status: Status = "available",
+  detail: DetailLevel = "high",
 ): Avatar {
-  const { skin, hair, shirt, pants } = appearanceColors(appearance);
-  const hairStyle = HAIR_STYLES[appearance.hairStyle];
-
-  const paint = (color: THREE.ColorRepresentation) =>
-    new THREE.MeshStandardMaterial({ color, roughness: SURFACE_ROUGHNESS });
-  const box = (
-    w: number,
-    h: number,
-    d: number,
-    color: THREE.ColorRepresentation,
-  ) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), paint(color));
-    mesh.castShadow = true;
-    return mesh;
-  };
+  const { skin, pants, shoe } = appearanceColors(appearance);
+  const pieces = lookPieces(appearance, detail);
 
   /** A limb that rotates around its top edge, like a hip or shoulder joint. */
-  const limb = (
-    x: number,
-    y: number,
-    size: { width: number; height: number; depth: number },
-    color: THREE.ColorRepresentation,
-  ) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, y, 0);
-    const mesh = box(size.width, size.height, size.depth, color);
-    mesh.position.y = -size.height / 2;
-    pivot.add(mesh);
-    return pivot;
+  const pivot = (x: number, y: number) => {
+    const group = new THREE.Group();
+    group.position.set(x, y, 0);
+    return group;
   };
 
-  const legL = limb(-LEG.hipX, LEG.height, LEG, pants);
-  const legR = limb(LEG.hipX, LEG.height, LEG, pants);
-
-  const torso = box(TORSO.width, TORSO.height, TORSO.depth, shirt);
-  torso.position.y = TORSO_CENTER;
-
-  const armL = limb(-ARM.shoulderX, SHOULDER_Y, ARM, shirt);
-  const armR = limb(ARM.shoulderX, SHOULDER_Y, ARM, shirt);
-  for (const arm of [armL, armR]) {
-    // The hand hangs from the end of the sleeve
-    const hand = box(HAND.width, HAND.height, HAND.depth, skin);
-    hand.position.y = -ARM.height - HAND.height / 2;
-    arm.add(hand);
-  }
-
-  const headY = HEAD_CENTER;
-  const head = box(HEAD.width, HEAD.height, HEAD.depth, skin);
-  head.position.y = headY;
-  const hairCap = box(HAIR.width, HAIR.height, HAIR.depth, hair);
-  hairCap.position.set(0, hairCenter(false), HAIR.backShift);
-  hairCap.visible = hairStyle !== "none";
-  // Long hair also hangs down behind the head
-  const hairBack =
-    hairStyle === "long"
-      ? box(HAIR.back.width, HAIR.back.height, HAIR.back.depth, hair)
-      : null;
-  if (hairBack) {
-    hairBack.position.set(0, headY + HAIR.back.dy, hairBackZ());
-  }
-  const eyes = EYES.xs.map((x) => {
-    const eye = box(EYES.size, EYES.size, EYES.depth, EYE_COLOR);
-    // The head's front faces -z; the eyes sit on it, standing out by their thickness
-    eye.position.set(x, headY + EYES.dy, -HEAD.depth / 2 - EYES.depth / 2);
-    eye.castShadow = false;
-    return eye;
+  const legL = pivot(-LEG.hipX, LEG.height);
+  const legR = pivot(LEG.hipX, LEG.height);
+  const legMeshes = [legL, legR].map((leg) => {
+    const mesh = solid(
+      [LEG.width, LEG.height, LEG.depth],
+      [0, -LEG.height / 2, 0],
+      pants,
+    );
+    leg.add(mesh);
+    return mesh;
   });
+  // The shoes stand under each leg, and on the lower legs while sitting
+  const standingShoes: THREE.Mesh[] = [];
+  const sittingShoes: THREE.Mesh[] = [];
+  const makeShoe = (y: number) =>
+    solid([SHOE.width, SHOE.height, SHOE.depth], [0, y, SHOE.dz], shoe ?? 0);
+  if (shoe !== null)
+    for (const leg of [legL, legR]) {
+      const standing = makeShoe(-LEG.height + SHOE.height / 2);
+      leg.add(standing);
+      standingShoes.push(standing);
+    }
+  // The lower legs only show while sitting: they hang straight down from the knee
+  const shins = [-LEG.hipX, LEG.hipX].map((x) => {
+    const group = pivot(x, LEG.height);
+    group.visible = false;
+    group.add(
+      solid([LEG.width, LEG.height, LEG.depth], [0, -LEG.height / 2, 0], pants),
+    );
+    if (shoe !== null) {
+      const shoeMesh = makeShoe(-LEG.height + SHOE.height / 2);
+      group.add(shoeMesh);
+      sittingShoes.push(shoeMesh);
+    }
+    return group;
+  });
+
+  const torso = partMesh(pieces, "torso");
+  const arms = (["armL", "armR"] as const).map((anchor) => {
+    const arm = pivot(
+      anchor === "armL" ? -ARM.shoulderX : ARM.shoulderX,
+      SHOULDER_Y,
+    );
+    const mesh = partMesh(pieces, anchor);
+    if (mesh) arm.add(mesh);
+    return arm;
+  });
+  const [armL, armR] = arms;
+
+  // The face (head, eyes, glasses, beard) is what the camera replaces; the
+  // hair and what is worn over it stay, and rise with the screen
+  const faceMesh = partMesh(pieces, "face");
+  const gearMesh = partMesh(pieces, "gear");
 
   // Everything but the name tag bobs together
   const rig = new THREE.Group();
-  rig.add(legL, legR, torso, armL, armR, head, hairCap, ...eyes);
-  if (hairBack) rig.add(hairBack);
+  for (const part of [legL, legR, ...shins, torso, ...arms, faceMesh, gearMesh])
+    if (part) rig.add(part);
 
   const label = makeLabel(name, status);
   const root = new THREE.Group();
   root.add(rig, label.sprite);
 
-  // The face is what the camera replaces: head and eyes go, a screen takes their place
-  const face = [head, ...eyes];
   let video: {
     screen: THREE.Mesh;
     texture: THREE.VideoTexture;
@@ -228,12 +253,36 @@ export function createAvatar(
     for (const material of video.screen.material as THREE.Material[])
       material.dispose();
     video = null;
-    for (const part of face) part.visible = true;
-    hairCap.position.y = hairCenter(false);
-    hairBack?.position.setZ(hairBackZ());
+    if (faceMesh) faceMesh.visible = true;
+    if (gearMesh) gearMesh.position.y = 0;
   };
 
   let phase = 0;
+  let seated: SeatedPose | null = null;
+  const setSeat = (atDesk: boolean | null) => {
+    seated = atDesk === null ? null : seatedPose(atDesk);
+    const thigh = seated?.thighShare ?? 1;
+    for (const mesh of legMeshes) {
+      mesh.scale.y = thigh;
+      mesh.position.y = -(LEG.height * thigh) / 2;
+    }
+    for (const shoeMesh of standingShoes) shoeMesh.visible = seated === null;
+    for (const shin of shins) {
+      shin.visible = seated !== null;
+      if (!seated) continue;
+      const length = LEG.height * seated.shinShare;
+      const [lowerLeg] = shin.children as THREE.Mesh[];
+      lowerLeg.scale.y = seated.shinShare;
+      lowerLeg.position.y = -length / 2;
+      shin.position.z = -LEG.height * seated.thighShare;
+    }
+    for (const shoeMesh of sittingShoes)
+      shoeMesh.position.y =
+        -LEG.height * (seated?.shinShare ?? 1) + SHOE.height / 2;
+    if (seated) legL.rotation.x = legR.rotation.x = seated.thigh;
+    rig.position.y = seated?.drop ?? 0;
+    label.sprite.position.y = NAME_TAG.center + (seated?.drop ?? 0);
+  };
   let emote: { kind: Emote; elapsedMs: number; icon: THREE.Sprite } | null =
     null;
   const stopEmote = () => {
@@ -249,6 +298,7 @@ export function createAvatar(
   return {
     root,
     setStatus: label.draw,
+    setSeat,
     playEmote(kind) {
       stopEmote();
       const icon = makeEmoteIcon(kind);
@@ -266,7 +316,10 @@ export function createAvatar(
       const materials: THREE.Material[] = Array.from({ length: 6 }, (_, i) =>
         i === FRONT_FACE
           ? new THREE.MeshBasicMaterial({ map: texture })
-          : paint(skin),
+          : new THREE.MeshStandardMaterial({
+              color: skin,
+              roughness: SURFACE_ROUGHNESS,
+            }),
       );
       const screen = new THREE.Mesh(
         new THREE.BoxGeometry(
@@ -276,7 +329,7 @@ export function createAvatar(
         ),
         materials,
       );
-      screen.position.y = headY;
+      screen.position.y = HEAD_CENTER;
       screen.castShadow = true;
 
       // Show the middle of the picture, whatever the camera's proportions are
@@ -294,9 +347,8 @@ export function createAvatar(
       element.addEventListener("resize", fit);
       void element.play().catch(() => {}); // muted, so autoplay is allowed; ignore races
 
-      for (const part of face) part.visible = false;
-      hairCap.position.y = hairCenter(true);
-      hairBack?.position.setZ(hairBackZ());
+      if (faceMesh) faceMesh.visible = false;
+      if (gearMesh) gearMesh.position.y = GEAR_LIFT_ON_SCREEN;
       rig.add(screen);
       video = {
         screen,
@@ -308,13 +360,19 @@ export function createAvatar(
       };
     },
     update(dt, speed) {
-      phase += speed * dt * STRIDE_RADIANS_PER_METER;
-      const pose = walkPose(phase, speed);
-      legL.rotation.x = pose.legL;
-      legR.rotation.x = pose.legR;
-      armL.rotation.x = pose.armL;
-      armR.rotation.x = pose.armR;
-      rig.position.y = pose.bob;
+      if (seated) {
+        armL.rotation.x = seated.arm;
+        armR.rotation.x = seated.arm;
+        rig.position.y = seated.drop;
+      } else {
+        phase += speed * dt * STRIDE_RADIANS_PER_METER;
+        const pose = walkPose(phase, speed);
+        legL.rotation.x = pose.legL;
+        legR.rotation.x = pose.legR;
+        armL.rotation.x = pose.armL;
+        armR.rotation.x = pose.armR;
+        rig.position.y = pose.bob;
+      }
 
       if (!emote) return;
       emote.elapsedMs += dt * 1000;
@@ -337,7 +395,8 @@ export function createAvatar(
       root.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.geometry.dispose();
-          (object.material as THREE.Material).dispose();
+          if (object.material !== AVATAR_MATERIAL)
+            (object.material as THREE.Material).dispose();
         } else if (object instanceof THREE.Sprite) {
           object.material.map?.dispose();
           object.material.dispose();

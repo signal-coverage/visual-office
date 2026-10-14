@@ -14,9 +14,18 @@ import {
 } from "../../shared/appearance.ts";
 import type { ChatScope } from "../../shared/chat.ts";
 import type { Emote } from "../../shared/emotes.ts";
-import { FLOOR_UPDATED_CODE } from "../../shared/floors.ts";
+import {
+  COMMON_FLOOR_ID,
+  COMMON_FLOOR_NAME,
+  type FloorInfo,
+  type FloorMessage,
+} from "../../shared/floors.ts";
 import { sanitizeName } from "../../shared/name.ts";
 import { DEFAULT_STATUS, type Status } from "../../shared/presence.ts";
+import {
+  panelUsesMouse,
+  type PanelContent,
+} from "../../shared/interactions.ts";
 import type { Roster } from "../../shared/roster.ts";
 import {
   alertFor,
@@ -31,6 +40,7 @@ import {
   showDesktopNotification,
 } from "../chat/desktop";
 import { playBeep } from "../chat/sound";
+import { withToken } from "../calendar/calendar";
 import { useRoomNow } from "../calendar/useRoomCalendar";
 import { CalendarBadge } from "../components/CalendarBadge";
 import { BoardHint } from "../components/BoardHint";
@@ -40,7 +50,9 @@ import { ClosingBanner } from "../components/ClosingBanner";
 import { DebugOverlay } from "../components/DebugOverlay";
 import { EmoteBar } from "../components/EmoteBar";
 import { ErrorBoundary } from "../components/ErrorBoundary";
+import { FloorBadge } from "../components/FloorBadge";
 import { GameMenu } from "../components/GameMenu";
+import { InteractHint } from "../components/InteractHint";
 import { LoadFailed } from "../components/LoadFailed";
 import { LobbyScreen } from "../components/LobbyScreen";
 import { ScreenShareBadge } from "../components/ScreenShareBadge";
@@ -50,11 +62,22 @@ import { Toast } from "../components/Toast";
 import { UserList } from "../components/UserList";
 import { VoiceIndicator } from "../components/VoiceIndicator";
 import { ZoneIndicator } from "../components/ZoneIndicator";
+import { httpUrlOf } from "../editor/backend";
+import { fetchFloors } from "../floors/floors";
+import {
+  afterDisconnect,
+  canTravel,
+  travelDecision,
+  travellingNotice,
+} from "../floors/travel";
+import { floorFromSearch } from "../floors/search";
 import { Game, type ScreenShareInfo } from "../game/Game";
 import { detectGpuName, isSoftwareRenderer } from "../game/gpu";
+import { currentServerUrl } from "../game/serverAddress";
 import type { VoiceState } from "../game/VoiceChat";
 import {
   HUD_HINTS,
+  MAP_HINT,
   DEBUG_KEY,
   MAX_STORED_MESSAGES,
   NOTICE_MS,
@@ -66,7 +89,6 @@ import {
   debugFromUrl,
   loadAppearance,
   loadSavedName,
-  messageForDisconnect,
   messageForJoinError,
   nameFromUrl,
   saveAppearance,
@@ -89,6 +111,20 @@ const CalendarView = lazy(() =>
   })),
 );
 
+// Its own chunk: only opened with its key or from the menu
+const RoomsMap = lazy(() =>
+  import("../components/RoomsMap").then((module) => ({
+    default: module.RoomsMap,
+  })),
+);
+
+// Its own chunk: only drawn when something is used (with the screens of computers and shelves)
+const InteractionScreen = lazy(() =>
+  import("../components/InteractionScreen").then((module) => ({
+    default: module.InteractionScreen,
+  })),
+);
+
 export function App({ signedIn }: AppProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
@@ -103,6 +139,9 @@ export function App({ signedIn }: AppProps) {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   /** The chat takes the mouse too: that must not open the menu. */
   const chatOpen = useRef(false);
+  /** The map of rooms takes the mouse on purpose too. */
+  const mapOpen = useRef(false);
+  const [mapShown, setMapShown] = useState(false);
   // The same two facts as state, for what is drawn: the click prompt
   const [mouseLocked, setMouseLocked] = useState(false);
   const [chatShown, setChatShown] = useState(false);
@@ -132,7 +171,22 @@ export function App({ signedIn }: AppProps) {
   const [canModerate, setCanModerate] = useState(false);
   const [zone, setZone] = useState<string | null>(null);
   const [area, setArea] = useState<string | null>(null);
+  /** The room the player is in, or was last in: where entering from the first screen goes. */
+  const [floor, setFloor] = useState<FloorMessage | null>(null);
+  /** The rooms and which of them the player may enter; null until the server has said. */
+  const [floors, setFloors] = useState<FloorInfo[] | null>(null);
+  const floorsRef = useRef<FloorInfo[] | null>(null);
+  /** The room to enter from the first screen: the one in the link, else the last one entered, else the common one. */
+  const selectedFloor = useRef(
+    floorFromSearch(window.location.search) ?? COMMON_FLOOR_ID,
+  );
+  /** The room the player asked to travel to: the disconnection that follows is not an error. */
+  const travelTo = useRef<string | null>(null);
+  /** What the floor-change callbacks (made once, when joining) need to call now. */
+  const floorChanged = useRef(signedIn?.onFloorChange);
   const [boardInk, setBoardInk] = useState<number | null>(null);
+  const [interactHint, setInteractHint] = useState<string | null>(null);
+  const [panel, setPanel] = useState<PanelContent | null>(null);
   const [screenShare, setScreenShare] = useState<ScreenShareInfo>({
     kind: "none",
   });
@@ -177,6 +231,10 @@ export function App({ signedIn }: AppProps) {
   useEffect(() => {
     latest.current.settings = settings;
   }, [settings]);
+  useEffect(() => {
+    floorChanged.current = signedIn?.onFloorChange;
+    floorsRef.current = floors;
+  });
 
   // Whether the tab is in view decides if the chat is being read, and the title counts what is waiting
   useEffect(() => {
@@ -249,12 +307,27 @@ export function App({ signedIn }: AppProps) {
     if (phase !== "online") return;
     const onLockChange = () => {
       setMouseLocked(document.pointerLockElement !== null);
+      const game = gameRef.current;
+      if (document.pointerLockElement !== null) {
+        // Taking the mouse back (a click on the scene) puts a computer or a shelf away
+        if (game?.interactionUsesMouse) game.closeInteraction();
+        return;
+      }
+      // A computer or a shelf frees the mouse on purpose: it stays until F, Esc or its button
+      if (game?.interactionUsesMouse) return;
+      // Esc closes what the player is reading before it asks for the menu
+      if (game?.interactionOpen) {
+        game.closeInteraction();
+        return;
+      }
       if (
-        document.pointerLockElement === null &&
         !chatOpen.current &&
+        !mapOpen.current &&
         !gameRef.current?.choosingScreen
-      )
+      ) {
+        gameRef.current?.standUp();
         setMenuOpen(true);
+      }
     };
     document.addEventListener("pointerlockchange", onLockChange);
     return () =>
@@ -275,134 +348,208 @@ export function App({ signedIn }: AppProps) {
   const roomNow = useRoomNow(phase === "online" ? zone : null, tokenOf);
   const [calendarOpen, setCalendarOpen] = useState(false);
 
-  /** `join`, for `join` itself to call when the floor was updated and has to be entered again. */
-  const rejoin = useRef<(name: string, appearance: Appearance) => void>(
-    () => {},
+  /** The rooms and which of them the player may enter, asked again each time it may have changed. */
+  const loadFloors = useCallback(
+    () =>
+      void fetchFloors(withToken(tokenOf), httpUrlOf(currentServerUrl())).then(
+        (found) => {
+          if (found) setFloors(found);
+        },
+      ),
+    [tokenOf],
+  );
+  useEffect(() => {
+    if (phase === "online" || menuOpen) loadFloors();
+  }, [phase, menuOpen, loadFloors]);
+
+  /** `openMap`, for the game's key callback (made once, when joining) to call now. */
+  const openMapRef = useRef<() => void>(() => {});
+
+  /** `join`, for `join` itself to call when the player travels, the floor was updated or access was taken away, and the room has to be entered again. */
+  const rejoin = useRef<
+    (
+      name: string,
+      appearance: Appearance,
+      target: string,
+      notice?: string,
+    ) => void
+  >(() => {});
+
+  /**
+   * Joins a room. From the first screen it is the one selected; when it comes
+   * from a room that ended (`inRoom`) the first screen is not shown in between.
+   */
+  const join = useCallback(
+    (
+      rawName: string,
+      chosen?: Appearance,
+      requested?: string,
+      inRoom?: { notice?: string },
+    ) => {
+      const game = gameRef.current;
+      if (!game) return;
+      const target = requested ?? selectedFloor.current;
+      selectedFloor.current = target;
+      const playerName = sanitizeName(rawName);
+      // A link with ?name= has no menu: use the look saved last time, or one made from the name
+      const appearance =
+        chosen ?? loadAppearance(defaultAppearance(playerName));
+      setName(playerName);
+      setLook(appearance);
+      saveName(playerName);
+      saveAppearance(appearance);
+      setPhase(inRoom ? "online" : "connecting");
+      setMessage(null);
+      setMenuOpen(false);
+      setReconnecting(false);
+      setZone(null);
+      setRoster(null);
+      setMicSteps(0);
+      setClosingIn(null);
+
+      // `gameRef.current !== game` means the component unmounted (or React StrictMode
+      // remounted it) while we were connecting: that attempt no longer matters.
+      // The token is asked for now, not before: it only lasts a minute
+      (getToken.current?.() ?? Promise.resolve(null))
+        .then((token) =>
+          game.connect(
+            playerName,
+            appearance,
+            {
+              onChat: (chat, mine) => {
+                setMessages((prev) =>
+                  [...prev, { ...chat, mine }].slice(-MAX_STORED_MESSAGES),
+                );
+                const { unread: counts, notify } = alertFor({
+                  message: chat,
+                  mine,
+                  viewing: chatOpen.current && !document.hidden,
+                });
+                if (counts) setUnread((n) => n + 1);
+                if (!notify) return;
+                const { settings: current } = latest.current;
+                setAlert(toastText(chat));
+                if (current.notificationSound) playBeep("message");
+                if (
+                  shouldDesktopNotify({
+                    enabled: current.desktopNotifications,
+                    permission: desktopPermission(),
+                    hidden: document.hidden,
+                    notify,
+                  })
+                )
+                  showDesktopNotification(chat);
+              },
+              onKnock: (text) => {
+                setAlert(text);
+                if (latest.current.settings.notificationSound)
+                  playBeep("knock");
+              },
+              onVoiceState: setVoiceState,
+              onMicLevel: setMicSteps,
+              onRoster: setRoster,
+              onZone: setZone,
+              onArea: setArea,
+              onBoardAim: (aim) => setBoardInk(aim ? aim.ink : null),
+              onInteractHint: setInteractHint,
+              onInteractPanel: (next) => {
+                setPanel(next);
+                // A computer or a shelf is clicked and scrolled: the mouse is let go while it is open
+                if (next && panelUsesMouse(next.kind))
+                  document.exitPointerLock();
+              },
+              onScreenShare: setScreenShare,
+              onNotice: setNotice,
+              onCamera: (on, element) => {
+                setCameraOn(on);
+                setSelfView(element);
+              },
+              onReconnecting: setReconnecting,
+              onFloorClosing: setClosingIn,
+              onStatusChosen: setChosenStatus,
+              onEmoteKey: setEmoteKeyHeld,
+              onMapKey: () => openMapRef.current(),
+              onModerator: setCanModerate,
+              onFloor: (joined) => {
+                setFloor(joined);
+                floorChanged.current?.(joined.id);
+              },
+              onDisconnected: (code) => {
+                setReconnecting(false);
+                setZone(null);
+                setRoster(null);
+                setMicSteps(0);
+                setBoardInk(null);
+                setInteractHint(null);
+                setPanel(null);
+                setScreenShare({ kind: "none" });
+                setNotice(null);
+                setClosingIn(null);
+                setAlert(null);
+                setUnread(0);
+                setEmoteKeyHeld(false);
+                setCanModerate(false);
+                setMenuOpen(false);
+                setCalendarOpen(false);
+                const traveller = travelTo.current;
+                travelTo.current = null;
+                const next = afterDisconnect({
+                  code,
+                  leaving: leaving.current,
+                  travelTo: traveller,
+                  floor: selectedFloor.current,
+                });
+                leaving.current = false;
+                // The player left on purpose: back to the first screen, with nothing to apologise for
+                if (next.kind === "lobby") {
+                  setHasLeft(true);
+                  setMessage(null);
+                  setPhase("lobby");
+                  return;
+                }
+                // Travelling, a new layout, access taken away: straight into a room, with no first screen in between
+                if (next.kind === "rejoin") {
+                  rejoin.current(
+                    playerName,
+                    appearance,
+                    next.floor,
+                    next.notice ??
+                      (traveller
+                        ? travellingNotice(
+                            floorsRef.current?.find((f) => f.id === traveller)
+                              ?.name ?? traveller,
+                          )
+                        : undefined),
+                  );
+                  return;
+                }
+                setMessage(next.message);
+                setPhase("offline");
+              },
+            },
+            token,
+            target,
+          ),
+        )
+        .then(() => {
+          if (gameRef.current !== game) return;
+          setPhase("online");
+          if (inRoom?.notice) setNotice(inRoom.notice);
+          game.relock();
+        })
+        .catch((error) => {
+          console.warn("Could not join the office room", error);
+          if (gameRef.current !== game) return;
+          setMessage(messageForJoinError(error));
+          setPhase("offline");
+        });
+    },
+    [],
   );
 
-  const join = useCallback((rawName: string, chosen?: Appearance) => {
-    const game = gameRef.current;
-    if (!game) return;
-    const playerName = sanitizeName(rawName);
-    // A link with ?name= has no menu: use the look saved last time, or one made from the name
-    const appearance = chosen ?? loadAppearance(defaultAppearance(playerName));
-    setName(playerName);
-    setLook(appearance);
-    saveName(playerName);
-    saveAppearance(appearance);
-    setPhase("connecting");
-    setMessage(null);
-    setMenuOpen(false);
-    setReconnecting(false);
-    setZone(null);
-    setRoster(null);
-    setMicSteps(0);
-    setClosingIn(null);
-
-    // `gameRef.current !== game` means the component unmounted (or React StrictMode
-    // remounted it) while we were connecting: that attempt no longer matters.
-    // The token is asked for now, not before: it only lasts a minute
-    (getToken.current?.() ?? Promise.resolve(null))
-      .then((token) =>
-        game.connect(
-          playerName,
-          appearance,
-          {
-            onChat: (chat, mine) => {
-              setMessages((prev) =>
-                [...prev, { ...chat, mine }].slice(-MAX_STORED_MESSAGES),
-              );
-              const { unread: counts, notify } = alertFor({
-                message: chat,
-                mine,
-                viewing: chatOpen.current && !document.hidden,
-              });
-              if (counts) setUnread((n) => n + 1);
-              if (!notify) return;
-              const { settings: current } = latest.current;
-              setAlert(toastText(chat));
-              if (current.notificationSound) playBeep("message");
-              if (
-                shouldDesktopNotify({
-                  enabled: current.desktopNotifications,
-                  permission: desktopPermission(),
-                  hidden: document.hidden,
-                  notify,
-                })
-              )
-                showDesktopNotification(chat);
-            },
-            onKnock: (text) => {
-              setAlert(text);
-              if (latest.current.settings.notificationSound) playBeep("knock");
-            },
-            onVoiceState: setVoiceState,
-            onMicLevel: setMicSteps,
-            onRoster: setRoster,
-            onZone: setZone,
-            onArea: setArea,
-            onBoardAim: (aim) => setBoardInk(aim ? aim.ink : null),
-            onScreenShare: setScreenShare,
-            onNotice: setNotice,
-            onCamera: (on, element) => {
-              setCameraOn(on);
-              setSelfView(element);
-            },
-            onReconnecting: setReconnecting,
-            onFloorClosing: setClosingIn,
-            onStatusChosen: setChosenStatus,
-            onEmoteKey: setEmoteKeyHeld,
-            onModerator: setCanModerate,
-            onDisconnected: (code) => {
-              setReconnecting(false);
-              setZone(null);
-              setRoster(null);
-              setMicSteps(0);
-              setBoardInk(null);
-              setScreenShare({ kind: "none" });
-              setNotice(null);
-              setClosingIn(null);
-              setAlert(null);
-              setUnread(0);
-              setEmoteKeyHeld(false);
-              setCanModerate(false);
-              setMenuOpen(false);
-              setCalendarOpen(false);
-              // The player left on purpose: back to the first screen, with nothing to apologise for
-              if (leaving.current) {
-                leaving.current = false;
-                setHasLeft(true);
-                setMessage(null);
-                setPhase("lobby");
-                return;
-              }
-              // A new layout was published: come back to a room made from it
-              if (code === FLOOR_UPDATED_CODE) {
-                rejoin.current(playerName, appearance);
-                return;
-              }
-              setMessage(messageForDisconnect(code));
-              setPhase("offline");
-            },
-          },
-          token,
-        ),
-      )
-      .then(() => {
-        if (gameRef.current !== game) return;
-        setPhase("online");
-        game.relock();
-      })
-      .catch((error) => {
-        console.warn("Could not join the office room", error);
-        if (gameRef.current !== game) return;
-        setMessage(messageForJoinError(error));
-        setPhase("offline");
-      });
-  }, []);
-
   useEffect(() => {
-    rejoin.current = join;
+    rejoin.current = (name, appearance, target, notice) =>
+      join(name, appearance, target, { notice });
   }, [join]);
 
   useEffect(() => {
@@ -413,7 +560,34 @@ export function App({ signedIn }: AppProps) {
     setMenuOpen(false);
     gameRef.current?.relock();
   };
+  const showMap = (shown: boolean) => {
+    mapOpen.current = shown;
+    setMapShown(shown);
+  };
+  /** Opens the map of rooms (from its key or the menu): it frees the mouse, and does not open the menu behind it. */
+  const openMap = () => {
+    if (!canTravel(floorsRef.current)) return;
+    gameRef.current?.standUp();
+    showMap(true);
+    setMenuOpen(false);
+    document.exitPointerLock();
+    loadFloors();
+  };
+  useEffect(() => {
+    openMapRef.current = openMap;
+  });
+  const closeMap = () => {
+    showMap(false);
+    gameRef.current?.relock();
+  };
+  /** Puts a computer or a shelf away and takes the mouse back. */
+  const closePanel = useCallback(() => {
+    gameRef.current?.closeInteraction();
+    gameRef.current?.relock();
+  }, []);
   const openMenu = () => {
+    gameRef.current?.closeInteraction();
+    gameRef.current?.standUp();
     document.exitPointerLock();
     setMenuOpen(true);
   };
@@ -450,6 +624,19 @@ export function App({ signedIn }: AppProps) {
     setSettings(next);
     saveSettings(next);
   };
+  /** Asks to travel to another room: the game leaves this one and joins that one, and the server decides at the door. */
+  const travel = (target: string) => {
+    const decision = travelDecision(floor?.id ?? null, target, floors);
+    if (decision.kind === "forbidden") {
+      setNotice(decision.text);
+      return;
+    }
+    if (decision.kind !== "travel") return;
+    travelTo.current = decision.floor.id;
+    showMap(false);
+    setMenuOpen(false);
+    gameRef.current?.leave();
+  };
   const leaveOffice = () => {
     leaving.current = true;
     setMenuOpen(false);
@@ -479,12 +666,14 @@ export function App({ signedIn }: AppProps) {
           )}
           {settings.showHints && (
             <div className={styles.hint}>
-              {HUD_HINTS.map(([key, action]) => (
-                <span key={key} className={styles.hintItem}>
-                  <Kbd className={styles.hintKey}>{key}</Kbd>
-                  {action}
-                </span>
-              ))}
+              {[...HUD_HINTS, ...(canTravel(floors) ? [MAP_HINT] : [])].map(
+                ([key, action]) => (
+                  <span key={key} className={styles.hintItem}>
+                    <Kbd className={styles.hintKey}>{key}</Kbd>
+                    {action}
+                  </span>
+                ),
+              )}
             </div>
           )}
           <Button
@@ -500,6 +689,7 @@ export function App({ signedIn }: AppProps) {
             micSteps={micSteps}
             onToggle={() => gameRef.current?.toggleVoice()}
           />
+          <FloorBadge name={canTravel(floors) ? (floor?.name ?? null) : null} />
           <ZoneIndicator label={zone} area={area} />
           <CalendarBadge text={roomNow} />
           <ClosingBanner key={closingIn ?? "none"} seconds={closingIn} />
@@ -507,6 +697,23 @@ export function App({ signedIn }: AppProps) {
           <Toast text={notice} />
           <Toast text={alert} slot="alert" />
           <BoardHint ink={boardInk} />
+          <InteractHint text={interactHint} />
+          {panel && (
+            <ErrorBoundary fallback={null}>
+              <Suspense fallback={null}>
+                <InteractionScreen
+                  panel={panel}
+                  floor={{
+                    id: floor?.id ?? COMMON_FLOOR_ID,
+                    name: floor?.name ?? COMMON_FLOOR_NAME,
+                  }}
+                  getToken={tokenOf}
+                  canEdit={!!signedIn?.onManageContent}
+                  onClose={closePanel}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          )}
           <ClickPrompt
             shown={showClickPrompt({
               online: phase === "online",
@@ -514,6 +721,8 @@ export function App({ signedIn }: AppProps) {
               menuOpen,
               chatOpen: chatShown,
               calendarOpen,
+              mapOpen: mapShown,
+              panelOpen: panel !== null && panelUsesMouse(panel.kind),
             })}
           />
           <EmoteBar shown={emoteKeyHeld} />
@@ -549,6 +758,16 @@ export function App({ signedIn }: AppProps) {
               onChangeSettings={changeSettings}
               onLeave={leaveOffice}
               onSignOut={signedIn?.signOut}
+              rooms={
+                canTravel(floors)
+                  ? {
+                      floors,
+                      current: floor?.id ?? null,
+                      onTravel: travel,
+                      onOpenMap: openMap,
+                    }
+                  : undefined
+              }
               moderation={
                 canModerate
                   ? {
@@ -559,6 +778,19 @@ export function App({ signedIn }: AppProps) {
                   : undefined
               }
             />
+          )}
+          {mapShown && floors && (
+            <ErrorBoundary fallback={<LoadFailed onClose={closeMap} />}>
+              <Suspense fallback={null}>
+                <RoomsMap
+                  floors={floors}
+                  current={floor?.id ?? null}
+                  getToken={tokenOf}
+                  onTravel={travel}
+                  onClose={closeMap}
+                />
+              </Suspense>
+            </ErrorBoundary>
           )}
           {calendarOpen && (
             <ErrorBoundary
@@ -591,6 +823,9 @@ export function App({ signedIn }: AppProps) {
             onOpenSettings={signedIn?.onOpenSettings}
             onOpenActivity={signedIn?.onOpenActivity}
             onOpenCalendars={signedIn?.onOpenCalendars}
+            onManageRooms={signedIn?.onManageRooms}
+            onManageContent={signedIn?.onManageContent}
+            roomName={floor && floor.id !== COMMON_FLOOR_ID ? floor.name : null}
             initialAppearance={look}
             message={message}
             onJoin={join}

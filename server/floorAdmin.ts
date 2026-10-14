@@ -13,6 +13,20 @@ export interface AdminRequest {
   actor?: Actor;
 }
 
+/**
+ * The floors that exist: a list that does not change, or a way to ask each
+ * time, for floors that are made while the server runs.
+ */
+export type KnownFloors =
+  readonly string[] | (() => Promise<readonly string[]>);
+
+/** The ids of the floors that exist now. */
+export async function floorIdsOf(
+  known: KnownFloors,
+): Promise<readonly string[]> {
+  return typeof known === "function" ? await known() : known;
+}
+
 export interface AdminReply {
   status: number;
   body: Record<string, unknown>;
@@ -50,7 +64,7 @@ export function authorizeAdmin(request: {
 export interface FloorAdminDeps {
   locks: FloorLockStore;
   /** The floors that exist. */
-  knownFloors: readonly string[];
+  knownFloors: KnownFloors;
   /**
    * Tells the people in a floor it is closing in `graceSeconds`, and sends them
    * out when the time is up. Returns how many were told.
@@ -81,7 +95,7 @@ async function route(
 ): Promise<AdminReply | null> {
   if (!request.path.startsWith("/admin/floors/")) return null;
   const match = ROUTE.exec(request.path);
-  if (!match || !deps.knownFloors.includes(match[1]))
+  if (!match || !(await floorIdsOf(deps.knownFloors)).includes(match[1]))
     return { status: 404, body: { error: "No such floor." } };
   const [, floor, action] = match;
 

@@ -8,12 +8,16 @@ export const HUD_HINTS: ReadonlyArray<readonly [key: string, action: string]> =
     ["C", "camera"],
     ["P", "screen"],
     ["K", "knock"],
+    ["F", "use"],
     ["Z", "status"],
     ["E", "emote"],
     ["Tab", "people"],
     ["F3", "stats"],
     ["Esc", "menu"],
   ];
+
+/** Only reminded when there is more than one room. */
+export const MAP_HINT = ["R", "rooms"] as const;
 
 export const UNREACHABLE_MESSAGE =
   "Could not reach the office server. Check that it is running and try again.";

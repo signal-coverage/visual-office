@@ -12,6 +12,9 @@ import {
   HEAD,
   HEAD_CENTER,
   HEAD_TOP,
+  GEAR_LIFT_ON_SCREEN,
+  GEAR_TOP_LIMIT,
+  SHOE,
   LEG,
   NAME_TAG,
   SHOULDER_Y,
@@ -200,5 +203,41 @@ describe("faceCrop", () => {
         offset: [0, 0],
       });
     }
+  });
+});
+
+describe("the shoes", () => {
+  it("are a little wider than the leg and reach forward, where the avatar looks", () => {
+    expect(SHOE.width).toBeGreaterThan(LEG.width);
+    expect(SHOE.width - LEG.width).toBeLessThanOrEqual(0.04);
+    expect(SHOE.depth).toBeGreaterThan(LEG.depth);
+    // Front is -z: the toe goes past the front of the leg more than the heel goes past its back
+    expect(SHOE.dz - SHOE.depth / 2).toBeLessThan(-LEG.depth / 2);
+    expect(SHOE.dz + SHOE.depth / 2).toBeGreaterThanOrEqual(
+      LEG.depth / 2 - 0.02,
+    );
+  });
+
+  it("stay within the feet of the person: not wider than the hips, not tall as a boot", () => {
+    expect(SHOE.height).toBeLessThanOrEqual(0.12);
+    expect(LEG.hipX + SHOE.width / 2).toBeLessThanOrEqual(TORSO.width / 2);
+    expect(Math.abs(SHOE.dz) + SHOE.depth / 2).toBeLessThanOrEqual(
+      PLAYER_RADIUS,
+    );
+  });
+});
+
+describe("what sits over the hair", () => {
+  it("is lifted with the hair when a camera takes the head", () => {
+    expect(GEAR_LIFT_ON_SCREEN).toBeCloseTo(
+      hairCenter(true) - hairCenter(false),
+    );
+  });
+
+  it("ends under the name tag, even lifted", () => {
+    expect(GEAR_TOP_LIMIT + GEAR_LIFT_ON_SCREEN).toBeLessThanOrEqual(
+      bottom(NAME_TAG) + 1e-9,
+    );
+    expect(GEAR_TOP_LIMIT).toBeGreaterThan(HEAD_TOP);
   });
 });

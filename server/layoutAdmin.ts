@@ -3,7 +3,12 @@ import { findProblems } from "../shared/officeProblems.ts";
 import { sanitizeModels } from "../shared/props.ts";
 import { canEditFloor, identityOf } from "./actor.ts";
 import { auditActor, type AuditRecorder } from "./audit.ts";
-import type { AdminReply, AdminRequest } from "./floorAdmin.ts";
+import {
+  floorIdsOf,
+  type AdminReply,
+  type AdminRequest,
+  type KnownFloors,
+} from "./floorAdmin.ts";
 import type { FloorLockStore } from "./floorLocks.ts";
 import type { Layout, LayoutStore } from "./layoutStore.ts";
 
@@ -19,7 +24,7 @@ export interface LayoutAdminDeps {
   /** Who has closed which floor: publishing needs the floor closed by the publisher. */
   locks: FloorLockStore;
   /** The floors that exist. */
-  knownFloors: readonly string[];
+  knownFloors: KnownFloors;
   /** A new version of a floor's layout was stored: the rooms running it may need to know. */
   onPublished?: (floor: string, version: number) => void;
   /** Where publishing, going back and vouching are noted: who did it. */
@@ -117,7 +122,8 @@ async function route(
   const match = ROUTE.exec(request.path);
   if (!match) return null;
   const [, floor, part, rest, mark] = match;
-  if (!deps.knownFloors.includes(floor)) return notFound("No such floor.");
+  if (!(await floorIdsOf(deps.knownFloors)).includes(floor))
+    return notFound("No such floor.");
   const { layouts } = deps;
   const actor = request.actor ?? { kind: "machine" as const };
   const wrongMethod = (use: string): AdminReply => ({

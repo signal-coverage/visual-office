@@ -21,11 +21,13 @@ import {
 } from "../../../shared/presence.ts";
 import { CONTROLS } from "../../App/controls";
 import { QUALITY_CHOICES, sanitizeQuality } from "../../game/quality";
+import { cn } from "../../lib/cn";
 import { desktopPermission, desktopSupported } from "../../chat/desktop";
 import { AppearancePicker, RANDOM_LABEL } from "../AppearancePicker";
 import { AvatarPreview } from "../AvatarPreview";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { LoadFailed } from "../LoadFailed";
+import { RoomsPanel } from "../RoomsPanel";
 import { StatusDot } from "../StatusDot";
 import {
   CHARACTER,
@@ -69,6 +71,7 @@ export function GameMenu({
   onChangeSettings,
   onLeave,
   onSignOut,
+  rooms,
   moderation,
 }: GameMenuProps) {
   const [panel, setPanel] = useState<Panel>("main");
@@ -107,7 +110,13 @@ export function GameMenu({
       isKeyboardDismissDisabled
     >
       <Modal.Container>
-        <Modal.Dialog className={styles.dialog} aria-label={TITLE}>
+        <Modal.Dialog
+          className={cn(
+            styles.dialog,
+            panel === "character" && styles.dialogWide,
+          )}
+          aria-label={TITLE}
+        >
           {panel === "main" && (
             <>
               {heading(TITLE)}
@@ -152,6 +161,26 @@ export function GameMenu({
                   >
                     {ITEMS.knock}
                   </Button>
+                  {rooms && (
+                    <Button
+                      fullWidth
+                      variant="secondary"
+                      className={styles.item}
+                      onPress={rooms.onOpenMap}
+                    >
+                      {ITEMS.map}
+                    </Button>
+                  )}
+                  {rooms && (
+                    <Button
+                      fullWidth
+                      variant="secondary"
+                      className={styles.item}
+                      onPress={() => setPanel("rooms")}
+                    >
+                      {ITEMS.rooms}
+                    </Button>
+                  )}
                   <Button
                     fullWidth
                     variant="secondary"
@@ -215,8 +244,21 @@ export function GameMenu({
               <Modal.Body>
                 <p className={styles.intro}>{CHARACTER.intro}</p>
                 <div className={styles.columns}>
-                  <div className={styles.previewColumn}>
-                    <AvatarPreview name={name} appearance={draft} />
+                  <div className={styles.previewStack}>
+                    <div className={styles.previewColumn}>
+                      <AvatarPreview name={name} appearance={draft} />
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      fullWidth
+                      onPress={() => {
+                        setDraft(randomAppearance());
+                        setSaved(false);
+                      }}
+                    >
+                      {RANDOM_LABEL}
+                    </Button>
                   </div>
                   <div className={styles.pickerColumn}>
                     <AppearancePicker
@@ -226,16 +268,6 @@ export function GameMenu({
                         setSaved(false);
                       }}
                     />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onPress={() => {
-                        setDraft(randomAppearance());
-                        setSaved(false);
-                      }}
-                    >
-                      {RANDOM_LABEL}
-                    </Button>
                   </div>
                 </div>
               </Modal.Body>
@@ -444,6 +476,14 @@ export function GameMenu({
               </Modal.Body>
               <Modal.Footer className={styles.actions}>{back}</Modal.Footer>
             </>
+          )}
+          {panel === "rooms" && rooms && (
+            <RoomsPanel
+              floors={rooms.floors}
+              current={rooms.current}
+              onTravel={rooms.onTravel}
+              onBack={() => setPanel("main")}
+            />
           )}
           {panel === "moderation" && moderation && (
             <ErrorBoundary

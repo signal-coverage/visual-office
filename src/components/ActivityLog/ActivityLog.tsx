@@ -1,7 +1,7 @@
 import { Button, Table } from "@heroui/react";
 import { useEffect, useState } from "react";
 import { describeAudit, type AuditEntry } from "../../../shared/audit.ts";
-import { FLOOR_ID } from "../../../shared/floors.ts";
+import { COMMON_FLOOR_ID } from "../../../shared/floors.ts";
 import { fetchAudit, mergeEntries } from "../../audit/audit";
 import { gameBackend, httpUrlOf } from "../../editor/backend";
 import { currentServerUrl } from "../../game/serverAddress";
@@ -30,7 +30,7 @@ export function ActivityLog({ getToken, onClose }: ActivityLogProps) {
   const [{ request, adminBase }] = useState(() => ({
     request: gameBackend({
       serverUrl: currentServerUrl(),
-      floor: FLOOR_ID,
+      floor: COMMON_FLOOR_ID,
       getToken,
       models: [],
     }).request,

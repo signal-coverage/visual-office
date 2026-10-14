@@ -71,6 +71,33 @@ describe("fetchSession", () => {
     expect(session).toMatchObject({ state: "member", appearance: look });
   });
 
+  it("reads a look kept before the extra options as a look with them plain", async () => {
+    const old = { skin: 1, hairColor: 2, hairStyle: 0, shirt: 3, pants: 4 };
+    const session = await fetchSession(
+      api({
+        body: {
+          state: "member",
+          organizationId: "org_acme",
+          appearance: old,
+          user: { id: "u1", name: "Ana", email: null, isAdmin: false },
+        },
+      }).request,
+      base,
+    );
+    expect(session).toMatchObject({
+      state: "member",
+      appearance: {
+        ...old,
+        facialHair: 0,
+        glasses: 0,
+        headwear: 0,
+        top: 0,
+        shoes: 0,
+        accessory: 0,
+      },
+    });
+  });
+
   it("takes a look that is not valid as no look, instead of failing: the person just chooses again", async () => {
     const session = await fetchSession(
       api({

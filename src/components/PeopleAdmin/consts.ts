@@ -1,6 +1,13 @@
 export const TITLE = "People";
 export const INTRO =
-  "Everybody who has signed in. The head of a floor can edit its layout; admins can do that on every floor and name heads.";
+  "Everybody who has signed in. The head of a floor can edit its layout and can always enter it; admins can do that on every floor and name heads. Under Can enter, choose which rooms each person may enter: everybody can enter the common room.";
+export const headColumn = (floor: string) => `Head of ${floor}`;
+export const enterColumn = (floor: string) => `Can enter ${floor}`;
+export const headLabel = (person: string, floor: string) =>
+  `${person} is head of ${floor}`;
+export const enterLabel = (person: string, floor: string) =>
+  `${person} can enter ${floor}`;
+export const ALWAYS_NOTE = "always";
 export const LOADING = "Loading…";
 export const LOAD_ERROR = "Could not load the people. Try again in a moment.";
 export const SAVE_ERROR = "Could not save that change. It was not made.";

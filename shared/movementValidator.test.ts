@@ -116,3 +116,18 @@ describe("MovementValidator", () => {
     expect(validator.position).toEqual({ x: 0.5, z: 5 });
   });
 });
+
+describe("MovementValidator.teleport", () => {
+  it("moves the referee's position without judging the jump", () => {
+    const validator = newValidator({ x: 0, z: 5 });
+    validator.teleport({ x: 9, z: 5 }, 1000);
+    expect(validator.position).toEqual({ x: 9, z: 5 });
+  });
+
+  it("judges the moves after it from the new place, with a small budget again", () => {
+    const validator = newValidator({ x: 0, z: 5 });
+    validator.teleport({ x: 9, z: 5 }, 1000);
+    expect(validator.validate({ x: 9.1, z: 5 }, 1050).ok).toBe(true);
+    expect(validator.validate({ x: 4, z: 5 }, 1100).ok).toBe(false);
+  });
+});

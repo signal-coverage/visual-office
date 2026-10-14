@@ -19,6 +19,10 @@ export interface QualityProfile {
   farUpdateEvery: number;
   /** Beyond this distance (meters) a person counts as far. */
   farDistance: number;
+  /** Whether the furniture keeps its small details (keys, mugs, casters, handles). */
+  furnitureDetail: "high" | "low";
+  /** Whether people keep the small things they wear (a watch, a badge, a bridge on their glasses). */
+  avatarDetail: "high" | "low";
 }
 
 export const QUALITY_PROFILES: Readonly<Record<QualityLevel, QualityProfile>> =
@@ -29,6 +33,8 @@ export const QUALITY_PROFILES: Readonly<Record<QualityLevel, QualityProfile>> =
       antialias: true,
       farUpdateEvery: 1,
       farDistance: Infinity,
+      furnitureDetail: "high",
+      avatarDetail: "high",
     },
     low: {
       pixelRatioCap: 1,
@@ -36,6 +42,8 @@ export const QUALITY_PROFILES: Readonly<Record<QualityLevel, QualityProfile>> =
       antialias: false,
       farUpdateEvery: 3,
       farDistance: 12,
+      furnitureDetail: "low",
+      avatarDetail: "low",
     },
   };
 

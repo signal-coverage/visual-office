@@ -16,8 +16,10 @@ import {
   ACTIVITY_LABEL,
   BUTTON_LABEL,
   CALENDARS_LABEL,
+  CONTENT_LABEL,
   actionOf,
   EDIT_FLOOR_LABEL,
+  enteringRoom,
   EYEBROW,
   HINT_KEYS,
   INVITE_PEOPLE_LABEL,
@@ -27,6 +29,7 @@ import {
   NAME_MAX_LENGTH,
   NAME_PLACEHOLDER,
   PREVIEW_FALLBACK_NAME,
+  ROOMS_LABEL,
   SETTINGS_LABEL,
   SUBTITLE,
   TITLE,
@@ -47,6 +50,9 @@ export function LobbyScreen({
   onOpenSettings,
   onOpenActivity,
   onOpenCalendars,
+  onManageRooms,
+  onManageContent,
+  roomName,
   onJoin,
 }: LobbyScreenProps) {
   const [typedName, setName] = useState(initialName);
@@ -85,6 +91,9 @@ export function LobbyScreen({
             <p className={styles.eyebrow}>{EYEBROW}</p>
             <h1 className={styles.title}>{TITLE}</h1>
             <p className={styles.subtitle}>{SUBTITLE}</p>
+            {roomName && (
+              <p className={styles.room}>{enteringRoom(roomName)}</p>
+            )}
           </header>
 
           <Form className={styles.form} onSubmit={handleSubmit}>
@@ -131,7 +140,9 @@ export function LobbyScreen({
               onInvitePeople ||
               onOpenSettings ||
               onOpenActivity ||
-              onOpenCalendars) && (
+              onOpenCalendars ||
+              onManageRooms ||
+              onManageContent) && (
               <div className={styles.admin}>
                 {onEditFloor && (
                   <Button
@@ -191,6 +202,26 @@ export function LobbyScreen({
                     onPress={onOpenCalendars}
                   >
                     {CALENDARS_LABEL}
+                  </Button>
+                )}
+                {onManageRooms && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onManageRooms}
+                  >
+                    {ROOMS_LABEL}
+                  </Button>
+                )}
+                {onManageContent && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onManageContent}
+                  >
+                    {CONTENT_LABEL}
                   </Button>
                 )}
               </div>

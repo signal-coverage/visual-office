@@ -6,6 +6,7 @@ import {
 } from "../shared/chat.ts";
 import {
   defaultAppearance,
+  lookOf,
   sanitizeAppearance,
   type Appearance,
 } from "../shared/appearance.ts";
@@ -37,18 +38,31 @@ import {
 import { lowestFreeColor } from "../shared/chatColor.ts";
 import { MAX_PLAYERS_PER_ROOM, SPAWN } from "../shared/constants.ts";
 import {
+  COMMON_FLOOR_ID,
+  COMMON_FLOOR_NAME,
+  FLOOR_ACCESS_LOST_CODE,
+  FLOOR_ACCESS_LOST_MESSAGE,
   FLOOR_CLOSED_CODE,
   FLOOR_CLOSED_MESSAGE,
-  FLOOR_ID,
+  FLOOR_FORBIDDEN_CODE,
+  FLOOR_UNKNOWN_CODE,
+  FLOOR_UNKNOWN_MESSAGE,
   FLOOR_UPDATED_CODE,
   FLOOR_UPDATED_MESSAGE,
   type ClosingMessage,
+  type FloorMessage,
   type LayoutMessage,
 } from "../shared/floors.ts";
-import { sceneFor, type FloorScene } from "../shared/layout.ts";
+import { OFFICE_FLOOR, sceneFor, type FloorScene } from "../shared/layout.ts";
 import { OFFICE_FURNITURE, OFFICE_MODELS } from "../shared/officeData.ts";
 import { sanitizeMove, type Correction } from "../shared/movement.ts";
 import { MovementValidator } from "../shared/movementValidator.ts";
+import {
+  sanitizeSeatRequest,
+  type SeatedMessage,
+  type SeatRefusal,
+  type SeatRefusedMessage,
+} from "../shared/seats.ts";
 import { randomSpawn } from "../shared/spawn.ts";
 import { OfficeState, Player } from "../shared/state.ts";
 import { voiceRoomName, type VoiceCredentials } from "../shared/voice.ts";
@@ -67,6 +81,12 @@ import { bans } from "./banStore.ts";
 import { BoardService } from "./boardService.ts";
 import { companySettings } from "./companySettings.ts";
 import {
+  checkEntry,
+  floorFromOptions,
+  statusBeforeTheRoom,
+} from "./floorEntry.ts";
+import {
+  floorDirectory,
   floorLocks,
   floorRooms,
   layouts,
@@ -84,6 +104,7 @@ import {
   mayEmote,
   STATUS_COOLDOWN_MS,
 } from "./presence.ts";
+import { maySit, SEAT_COOLDOWN_MS, SeatBook, standSpot } from "./seats.ts";
 import { enforceZones } from "./zoneEnforcer.ts";
 import type { UserRecord } from "./userStore.ts";
 import { ZoneSwitcher } from "./zoneSwitcher.ts";
@@ -99,6 +120,33 @@ const ENFORCE_INTERVAL_MS = 5000;
 /** The least time between two moderation requests of the same person. */
 const MODERATION_COOLDOWN_MS = 400;
 
+/**
+ * Runs before a room is looked for or made (the server hangs it on the class
+ * as its static `onAuth` once the room is defined): the floor asked for is made
+ * explicit, so an older client that says none and a new one that asks for the
+ * common floor end up in the same room, and has to exist, so nothing can make a
+ * room for a floor that is not there. Who may enter is decided by the room itself.
+ */
+export async function chooseFloor(
+  _token: string,
+  options: { floor?: unknown },
+): Promise<true> {
+  const floor = floorFromOptions(options);
+  if (floor === null)
+    throw new ServerError(
+      statusBeforeTheRoom(FLOOR_UNKNOWN_CODE),
+      FLOOR_UNKNOWN_MESSAGE,
+    );
+  options.floor = floor;
+  const entry = await checkEntry(floor, null, {
+    floors: floorDirectory,
+    rolesOf: (id) => users.rolesOf(id),
+  });
+  if (!entry.ok)
+    throw new ServerError(statusBeforeTheRoom(entry.code), entry.message);
+  return true;
+}
+
 export class OfficeRoom extends Room<{ state: OfficeState }> {
   maxClients = MAX_PLAYERS_PER_ROOM;
   private readonly lastChatAt = new Map<string, number>();
@@ -107,6 +155,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   private readonly lastEmoteAt = new Map<string, number>();
   private readonly lastKnockAt = new Map<string, number>();
   private readonly lastModerationAt = new Map<string, number>();
+  private readonly lastSeatAt = new Map<string, number>();
+  /** Who sits where: the server's own record, which the players' state is made from. */
+  private readonly seating = new SeatBook();
   /** Sessions a moderator muted: they get a token without the microphone, and keep it if the call moves. */
   private readonly voiceMuted = new Set<string>();
   private voiceAdmin: VoiceModeration | null = null;
@@ -120,6 +171,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   private readonly referees = new Map<string, MovementValidator>();
   private readonly zones = new Map<string, string | null>();
   private readonly switchers = new Map<string, ZoneSwitcher>();
+  /** The floor this room is: one room (or more, when it fills up) for each floor. */
+  private floorId = COMMON_FLOOR_ID;
+  private floorName = COMMON_FLOOR_NAME;
   private boards!: BoardService;
   private forgetFloor: (() => void) | null = null;
   private forgetModeration: (() => void) | null = null;
@@ -133,13 +187,14 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
 
   /**
    * Who may enter: nobody while the floor is being edited, and, when sign-in is
-   * on, only somebody the sign-in service vouches for. Returns who they are
-   * (or true when sign-in is off), which `onJoin` receives.
+   * on, only somebody the sign-in service vouches for, and who may enter this
+   * floor. Returns who they are (or true when sign-in is off), which `onJoin`
+   * receives.
    */
   async onAuth(_client: Client, options?: { token?: unknown }) {
     let locked = false;
     try {
-      locked = (await floorLocks.current(FLOOR_ID)) !== null;
+      locked = (await floorLocks.current(this.floorId)) !== null;
     } catch (error) {
       // A database that cannot be reached must not lock everybody out of the office
       console.error("Could not check whether the floor is closed:", error);
@@ -155,6 +210,12 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       // A moderator's ban: refused at the door until it ends
       const banned = await joinBan(bans, who.user.id, Date.now());
       if (banned) throw new ServerError(banned.code, banned.message);
+      // Whether this person may be on this floor, from what the server has now
+      const entry = await checkEntry(this.floorId, who.user.id, {
+        floors: floorDirectory,
+        rolesOf: (id) => users.rolesOf(id),
+      });
+      if (!entry.ok) throw new ServerError(entry.code, entry.message);
     }
     return who ? who.user : true;
   }
@@ -173,7 +234,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       void (async () => {
         // If the database cannot say, the editor did ask for the floor to close: go on
         const stillClosed = await floorLocks
-          .current(FLOOR_ID)
+          .current(this.floorId)
           .then((lock) => lock !== null)
           .catch(() => true);
         if (!stillClosed) {
@@ -194,6 +255,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
    */
   layoutPublished(version: number): void {
     if (version === this.layoutVersion) return;
+    // The seats are about to change: everybody gets up first
+    for (const client of this.clients)
+      if (this.seating.seatOf(client.sessionId)) this.standUp(client);
     void this.lock();
     this.clock.setTimeout(() => {
       for (const client of [...this.clients])
@@ -201,13 +265,31 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     }, LAYOUT_UPDATE_GRACE_MS);
   }
 
-  async onCreate() {
+  async onCreate(options?: unknown) {
     this.state = new OfficeState();
+
+    // Which floor this room is: it must be one that exists, whatever the options say
+    const floorId = floorFromOptions(options);
+    const entry = floorId
+      ? await checkEntry(floorId, null, {
+          floors: floorDirectory,
+          rolesOf: (id) => users.rolesOf(id),
+        })
+      : null;
+    if (!entry)
+      throw new ServerError(
+        statusBeforeTheRoom(FLOOR_UNKNOWN_CODE),
+        FLOOR_UNKNOWN_MESSAGE,
+      );
+    if (!entry.ok)
+      throw new ServerError(statusBeforeTheRoom(entry.code), entry.message);
+    this.floorId = entry.floor.id;
+    this.floorName = entry.floor.name;
 
     // What stands in the floor is what was last published, or the default
     // that comes with the build when nothing was (or the database is down)
     try {
-      const stored = await layouts.current(FLOOR_ID);
+      const stored = await layouts.current(this.floorId);
       if (stored) {
         this.scene = sceneFor(stored);
         this.layoutVersion = stored.version;
@@ -219,8 +301,8 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       );
     }
     // Only now, so it is told about layouts from the one it was made from on
-    this.forgetFloor = registerRoom(FLOOR_ID, this);
-    this.forgetModeration = registerModeratedRoom(FLOOR_ID, this);
+    this.forgetFloor = registerRoom(this.floorId, this);
+    this.forgetModeration = registerModeratedRoom(this.floorId, this);
 
     this.boards = new BoardService({
       zoneOf: (id) => this.zones.get(id) ?? null,
@@ -252,6 +334,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
           rooms,
           (id) => this.switchers.get(id)?.issuedZone,
           voiceConfig.roomPrefix,
+          this.floorId,
         ).then((evicted) => {
           if (evicted.length)
             console.warn(
@@ -266,6 +349,8 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const player = this.state.players.get(client.sessionId);
       const referee = this.referees.get(client.sessionId);
       if (!move || !player || !referee) return;
+      // A seated player stays where the server put them until they stand
+      if (this.seating.seatOf(client.sessionId)) return;
 
       if (!referee.validate(move, Date.now()).ok) {
         // The client moves itself for responsiveness; when it disagrees with the
@@ -279,6 +364,10 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       this.trackZone(client, move.x, move.z);
     });
 
+    // Sitting is the player's choice and the server's decision: where they sit, and where they stand up, are its own
+    this.onMessage("seat", (client, payload) => this.sit(client, payload));
+    this.onMessage("stand", (client) => this.standFrom(client));
+
     // Changing how they look, at any time: the server checks it and everybody sees it
     this.onMessage("appearance", (client, payload) => {
       const player = this.state.players.get(client.sessionId);
@@ -286,16 +375,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       if (!player || !mayChangeLook(member)) return;
       const now = Date.now();
       if (!waitedEnough(this.lastLookAt.get(client.sessionId), now)) return;
-      const next = nextLook(
-        {
-          skin: player.skin,
-          hairColor: player.hairColor,
-          hairStyle: player.hairStyle,
-          shirt: player.shirt,
-          pants: player.pants,
-        },
-        payload,
-      );
+      const next = nextLook(lookOf(player), payload);
       if (!next) return;
       this.lastLookAt.set(client.sessionId, now);
       Object.assign(player, next);
@@ -477,6 +557,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     player.yaw = SPAWN.yaw;
     player.zone = "";
     player.status = DEFAULT_STATUS;
+    player.seat = "";
     this.statusInputs.set(client.sessionId, {
       manual: DEFAULT_STATUS,
       idle: false,
@@ -492,6 +573,10 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       new MovementValidator(spawn, Date.now(), this.scene.colliders),
     );
     // Before anything that waits, so it is the first thing the player gets
+    client.send("floor", {
+      id: this.floorId,
+      name: this.floorName,
+    } satisfies FloorMessage);
     client.send("layout", {
       version: this.layoutVersion,
       furniture: this.scene.furniture,
@@ -521,6 +606,8 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     this.lastEmoteAt.delete(client.sessionId);
     this.lastKnockAt.delete(client.sessionId);
     this.lastModerationAt.delete(client.sessionId);
+    this.lastSeatAt.delete(client.sessionId);
+    this.seating.release(client.sessionId);
     this.voiceMuted.delete(client.sessionId);
     this.statusInputs.delete(client.sessionId);
     this.members.delete(client.sessionId);
@@ -529,6 +616,91 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     this.boards.forget(client.sessionId);
     this.switchers.get(client.sessionId)?.dispose();
     this.switchers.delete(client.sessionId);
+  }
+
+  private refuseSeat(client: Client, reason: SeatRefusal) {
+    client.send("seatRefused", { reason } satisfies SeatRefusedMessage);
+  }
+
+  /** Whether enough time has passed since this person last sat or stood. */
+  private seatCooledDown(sessionId: string): boolean {
+    const now = Date.now();
+    if (!cooledDown(this.lastSeatAt.get(sessionId), now, SEAT_COOLDOWN_MS))
+      return false;
+    this.lastSeatAt.set(sessionId, now);
+    return true;
+  }
+
+  /** A player asks to sit: only if the seat is in this layout, free and within reach of where the server has them. */
+  private sit(client: Client, payload: unknown) {
+    const seatId = sanitizeSeatRequest(payload);
+    const player = this.state.players.get(client.sessionId);
+    const referee = this.referees.get(client.sessionId);
+    if (!seatId || !player || !referee) return;
+    if (!this.seatCooledDown(client.sessionId)) {
+      this.refuseSeat(client, "cooldown");
+      return;
+    }
+    const seat = this.scene.interactables.find((entry) => entry.id === seatId);
+    const verdict = maySit({
+      seat,
+      player: referee.position,
+      occupiedBy: this.seating.occupant(seatId),
+      sessionId: client.sessionId,
+      alreadySeated: this.seating.seatOf(client.sessionId) !== undefined,
+      colliders: this.scene.colliders,
+      user: this.members.get(client.sessionId) ?? null,
+    });
+    if (!verdict.ok) {
+      this.refuseSeat(client, verdict.reason);
+      return;
+    }
+    const pose = seat?.seat;
+    if (!pose || !this.seating.take(seatId, client.sessionId)) return;
+    player.seat = seatId;
+    player.x = pose.x;
+    player.z = pose.z;
+    player.yaw = pose.yaw;
+    referee.teleport(pose, Date.now());
+    this.trackZone(client, pose.x, pose.z);
+    client.send("seated", {
+      seat: seatId,
+      x: pose.x,
+      z: pose.z,
+      yaw: pose.yaw,
+    } satisfies SeatedMessage);
+  }
+
+  private standFrom(client: Client) {
+    if (this.seating.seatOf(client.sessionId) === undefined) return;
+    if (!this.seatCooledDown(client.sessionId)) {
+      this.refuseSeat(client, "cooldown");
+      return;
+    }
+    this.standUp(client);
+  }
+
+  /** Gets somebody up, at the nearest free place around the chair that they can walk to. */
+  private standUp(client: Client) {
+    const seatId = this.seating.release(client.sessionId);
+    const player = this.state.players.get(client.sessionId);
+    const referee = this.referees.get(client.sessionId);
+    if (seatId === undefined || !player || !referee) return;
+    const seat = this.scene.interactables.find((entry) => entry.id === seatId);
+    const spot = seat?.seat
+      ? standSpot(seat.seat, this.scene.colliders, OFFICE_FLOOR)
+      : { x: player.x, z: player.z };
+    player.seat = "";
+    player.x = spot.x;
+    player.z = spot.z;
+    referee.teleport(spot, Date.now());
+    this.trackZone(client, spot.x, spot.z);
+    client.send("seated", {
+      seat: "",
+      x: spot.x,
+      z: spot.z,
+      yaw: player.yaw,
+    } satisfies SeatedMessage);
   }
 
   /** Everybody in the room, as chat and knocks need to know them: where they are and what they show as doing. */
@@ -574,7 +746,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   /** Whether the person may moderate this floor, by the roles they have now. False when that cannot be found out. */
   private async mayModerateHere(user: UserRecord): Promise<boolean> {
     try {
-      return canModerate(await users.rolesOf(user.id), FLOOR_ID);
+      return canModerate(await users.rolesOf(user.id), this.floorId);
     } catch (error) {
       console.error("Could not look up who may moderate:", error);
       return false;
@@ -618,13 +790,33 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
           targetUserId: target.id,
           minutes: request.minutes,
         },
-        FLOOR_ID,
+        this.floorId,
         { users, bans, rooms: floorRooms, audit: recordAudit, now: Date.now },
       );
     } catch (error) {
       console.error("Could not moderate:", error);
       return { ok: false, reason: "unavailable" };
     }
+  }
+
+  /**
+   * Somebody's roles or entries changed: if they may no longer be on this floor
+   * they are sent out, and the game takes them to the common floor.
+   */
+  accessChanged(userId: string): void {
+    const sessions = this.clients.filter(
+      (client) => this.members.get(client.sessionId)?.id === userId,
+    );
+    if (sessions.length === 0) return;
+    void checkEntry(this.floorId, userId, {
+      floors: floorDirectory,
+      rolesOf: (id) => users.rolesOf(id),
+    }).then((entry) => {
+      // Only a clear no sends anybody out: a database that cannot answer does not
+      if (entry.ok || entry.code !== FLOOR_FORBIDDEN_CODE) return;
+      for (const client of sessions)
+        client.leave(FLOOR_ACCESS_LOST_CODE, FLOOR_ACCESS_LOST_MESSAGE);
+    });
   }
 
   /** Disconnects every session of this person in the room. Returns how many there were. */
@@ -656,7 +848,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       for (const client of sessions) {
         const zone = this.switchers.get(client.sessionId)?.issuedZone ?? null;
         await this.voiceAdmin.setCanSpeak(
-          voiceRoomName(zone, voiceConfig.roomPrefix),
+          voiceRoomName(zone, voiceConfig.roomPrefix, this.floorId),
           client.sessionId,
           zone,
           !muted,
@@ -702,6 +894,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       player.name,
       zone,
       !this.voiceMuted.has(client.sessionId),
+      this.floorId,
     );
     // They may have left, or moved on again, while the token was being signed
     if (this.switchers.get(client.sessionId) !== switcher) return;

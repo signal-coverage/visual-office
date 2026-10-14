@@ -1,0 +1,1 @@
+export { RoomsMap } from "./RoomsMap";

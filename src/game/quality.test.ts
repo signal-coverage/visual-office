@@ -38,6 +38,18 @@ describe("QUALITY_PROFILES", () => {
     expect(high.farUpdateEvery).toBe(1);
     expect(low.farUpdateEvery).toBeGreaterThan(1);
   });
+
+  it("draws the small details of the furniture on high only", () => {
+    expect(QUALITY_PROFILES.high.furnitureDetail).toBe("high");
+    expect(QUALITY_PROFILES.low.furnitureDetail).toBe("low");
+  });
+});
+
+describe("the detail of the people", () => {
+  it("draws the small things people wear (a watch, a badge) on high only", () => {
+    expect(QUALITY_PROFILES.high.avatarDetail).toBe("high");
+    expect(QUALITY_PROFILES.low.avatarDetail).toBe("low");
+  });
 });
 
 describe("resolveLevel", () => {

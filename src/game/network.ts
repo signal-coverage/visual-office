@@ -1,5 +1,5 @@
 import { Callbacks, Client, type Room } from "@colyseus/sdk";
-import type { Appearance } from "../../shared/appearance.ts";
+import { APPEARANCE_FIELDS, type Appearance } from "../../shared/appearance.ts";
 import type { Emote, EmoteMessage } from "../../shared/emotes.ts";
 import { asStatus, type Status } from "../../shared/presence.ts";
 import type { ChatMessage, ChatRefusal, ChatScope } from "../../shared/chat.ts";
@@ -10,24 +10,25 @@ import type {
   ModeratorMessage,
   VoiceMutedMessage,
 } from "../../shared/moderation.ts";
-import type { ClosingMessage, LayoutMessage } from "../../shared/floors.ts";
+import {
+  COMMON_FLOOR_ID,
+  type ClosingMessage,
+  type FloorMessage,
+  type LayoutMessage,
+} from "../../shared/floors.ts";
 import { ROOM_NAME } from "../../shared/constants.ts";
 import type { Point, Stroke, StrokeMessage } from "../../shared/drawing.ts";
 import type { Correction, Move } from "../../shared/movement.ts";
 import type { RosterEntry } from "../../shared/roster.ts";
+import type {
+  SeatedMessage,
+  SeatRefusal,
+  SeatRefusedMessage,
+} from "../../shared/seats.ts";
 import { OfficeState, type Player } from "../../shared/state.ts";
 import type { VoiceCredentials } from "../../shared/voice.ts";
 import type { ZoneMessage } from "../../shared/zones.ts";
 import { currentServerUrl } from "./serverAddress";
-
-/** The parts of a player's look, as they are in the room's state. */
-const LOOK_FIELDS = [
-  "skin",
-  "hairColor",
-  "hairStyle",
-  "shirt",
-  "pants",
-] as const;
 
 export interface NetworkHandlers {
   /** The server created our own player: this is where it put us. */
@@ -70,6 +71,8 @@ export interface NetworkHandlers {
   onStatus: (sessionId: string, status: Status) => void;
   /** Somebody made a gesture. */
   onEmote: (message: EmoteMessage) => void;
+  /** Which floor this is, sent as soon as we join. */
+  onFloor: (floor: FloorMessage) => void;
   /** What stands in the floor, sent as soon as we join. */
   onLayout: (layout: LayoutMessage) => void;
   /** The floor is about to close for editing: this many seconds left. */
@@ -82,6 +85,12 @@ export interface NetworkHandlers {
   onModerated: (reply: ModerationReply) => void;
   /** A moderator muted our voice, or let us speak again. */
   onVoiceMuted: (muted: boolean) => void;
+  /** The server sat us down or stood us up: where we are now. */
+  onSeated: (message: SeatedMessage) => void;
+  /** The server did not let us sit. */
+  onSeatRefused: (reason: SeatRefusal) => void;
+  /** Somebody else sat down or got up. */
+  onSeat: (sessionId: string, player: Player) => void;
 }
 
 export interface Connection {
@@ -106,6 +115,10 @@ export interface Connection {
     target: string,
     minutes?: number,
   ) => void;
+  /** Asks to sit in a seat (its id, from the layout). The server decides. */
+  sendSeat: (seat: string) => void;
+  /** Asks to get up. */
+  sendStand: () => void;
   leave: () => void;
 }
 
@@ -115,11 +128,13 @@ export async function connect(
   handlers: NetworkHandlers,
   /** Proof of who is entering, when the server asks for sign-in. */
   token: string | null = null,
+  /** The floor to enter: the common one unless told another. The server decides whether they may. */
+  floor: string = COMMON_FLOOR_ID,
 ): Promise<Connection> {
   const client = new Client(currentServerUrl());
   const room: Room<unknown, OfficeState> = await client.joinOrCreate(
     ROOM_NAME,
-    { name, appearance, ...(token ? { token } : {}) },
+    { name, appearance, floor, ...(token ? { token } : {}) },
     OfficeState,
   );
 
@@ -147,9 +162,13 @@ export async function connect(
         handlers.onStatus(sessionId, asStatus(player.status));
       publishPlayers();
     });
+    if (sessionId !== room.sessionId)
+      callbacks.listen(player, "seat", () =>
+        handlers.onSeat(sessionId, player),
+      );
     // Their look is drawn again when it changes (not our own: we do not see ourselves)
     if (sessionId !== room.sessionId)
-      for (const field of LOOK_FIELDS)
+      for (const field of APPEARANCE_FIELDS)
         callbacks.listen(player, field, () =>
           handlers.onLook(sessionId, player),
         );
@@ -199,6 +218,13 @@ export async function connect(
   room.onMessage("voiceMuted", ({ muted }: VoiceMutedMessage) =>
     handlers.onVoiceMuted(muted === true),
   );
+  room.onMessage("seated", (message: SeatedMessage) =>
+    handlers.onSeated(message),
+  );
+  room.onMessage("seatRefused", ({ reason }: SeatRefusedMessage) =>
+    handlers.onSeatRefused(reason),
+  );
+  room.onMessage("floor", (floor: FloorMessage) => handlers.onFloor(floor));
   room.onMessage("layout", (layout: LayoutMessage) =>
     handlers.onLayout(layout),
   );
@@ -222,6 +248,8 @@ export async function connect(
         target,
         ...(minutes === undefined ? {} : { minutes }),
       }),
+    sendSeat: (seat) => room.send("seat", { seat }),
+    sendStand: () => room.send("stand", {}),
     leave: () => void room.leave(),
   };
 }

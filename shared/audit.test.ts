@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeAudit, type AuditEntry } from "./audit.ts";
+import { AUDIT_ACTIONS, describeAudit, type AuditEntry } from "./audit.ts";
 
 const entry = (overrides: Partial<AuditEntry>): AuditEntry => ({
   id: 1,
@@ -135,5 +135,95 @@ describe("describeAudit", () => {
     expect(
       describeAudit(entry({ action: "calendar.set", floor: null, detail: {} })),
     ).toBe("Ana set the calendar of a room");
+  });
+});
+
+describe("describeAudit for rooms", () => {
+  it("describes making and renaming a room", () => {
+    expect(
+      describeAudit(
+        entry({
+          action: "floor.create",
+          floor: "hr",
+          detail: { name: "Human Resources" },
+        }),
+      ),
+    ).toBe("Ana made the room Human Resources (hr)");
+    expect(describeAudit(entry({ action: "floor.create", floor: "hr" }))).toBe(
+      "Ana made the room hr",
+    );
+    expect(
+      describeAudit(
+        entry({
+          action: "floor.rename",
+          floor: "hr",
+          detail: { from: "People", to: "Human Resources" },
+        }),
+      ),
+    ).toBe("Ana renamed the room People to Human Resources (hr)");
+    expect(describeAudit(entry({ action: "floor.rename", floor: "hr" }))).toBe(
+      "Ana renamed the room hr",
+    );
+  });
+
+  it("describes giving and taking away an entry", () => {
+    const person = { targetUserId: "user_beto", targetName: "Beto" };
+    expect(
+      describeAudit(
+        entry({
+          action: "floor.access",
+          floor: "hr",
+          detail: { allowed: true },
+          ...person,
+        }),
+      ),
+    ).toBe("Ana let Beto enter hr");
+    expect(
+      describeAudit(
+        entry({
+          action: "floor.access",
+          floor: "hr",
+          detail: { allowed: false },
+          ...person,
+        }),
+      ),
+    ).toBe("Ana stopped Beto entering hr");
+  });
+});
+
+describe("describeAudit for content", () => {
+  const of = (action: string, detail: Record<string, unknown>, floor = "hr") =>
+    describeAudit(entry({ action, floor, detail }));
+
+  it("describes adding, changing and removing a book or an announcement", () => {
+    expect(of("content.create", { kind: "book", title: "Handbook" })).toBe(
+      'Ana added the book "Handbook" to hr',
+    );
+    expect(of("content.create", { kind: "announcement", title: "Party" })).toBe(
+      'Ana added the announcement "Party" to hr',
+    );
+    expect(of("content.update", { kind: "book", title: "Handbook" })).toBe(
+      'Ana changed the book "Handbook" of hr',
+    );
+    expect(of("content.delete", { kind: "announcement", title: "Party" })).toBe(
+      'Ana removed the announcement "Party" from hr',
+    );
+  });
+
+  it("still reads right when the details are missing", () => {
+    expect(of("content.create", {})).toBe("Ana added something to hr");
+    expect(of("content.delete", { kind: "other", title: 4 })).toBe(
+      "Ana removed something from hr",
+    );
+  });
+
+  it("is a recorded action", () => {
+    expect(AUDIT_ACTIONS).toEqual(
+      expect.arrayContaining([
+        "content.create",
+        "content.update",
+        "content.delete",
+      ]),
+    );
   });
 });

@@ -217,3 +217,43 @@ describe("handleModerationAdmin", () => {
     ).toBe(503);
   });
 });
+
+describe("floors made while the server runs", () => {
+  it("can be moderated once they exist, by their own head", async () => {
+    const users = new MemoryUserStore();
+    await users.upsert({ id: "user_hana", email: null, name: "Hana" });
+    await users.upsert({ id: "user_ana", email: null, name: "Ana" });
+    const floors = ["office"];
+    const removedFrom: string[] = [];
+    const deps = {
+      users,
+      bans: new MemoryBanStore(),
+      rooms: {
+        removeUser: (floor: string) => {
+          removedFrom.push(floor);
+          return 1;
+        },
+        setVoiceMuted: async () => 1,
+      } satisfies ModerationRooms,
+      audit: async () => {},
+      now: () => 1_000,
+      knownFloors: async () => floors,
+      floor: "office",
+    };
+    const head = person({ headOf: ["hr"] }, "user_hana", "Hana");
+    const kick = () =>
+      handleModerationAdmin(
+        {
+          method: "POST",
+          path: "/admin/moderation",
+          body: { action: "kick", userId: "user_ana", floor: "hr" },
+          actor: head,
+        },
+        deps,
+      );
+    expect((await kick())?.status).toBe(404);
+    floors.push("hr");
+    expect((await kick())?.status).toBe(200);
+    expect(removedFrom).toEqual(["hr"]);
+  });
+});

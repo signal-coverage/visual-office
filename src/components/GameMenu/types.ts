@@ -1,5 +1,6 @@
 import type { Appearance } from "../../../shared/appearance.ts";
 import type { Emote } from "../../../shared/emotes.ts";
+import type { FloorInfo } from "../../../shared/floors.ts";
 import type { Status } from "../../../shared/presence.ts";
 import type { ModerationAction } from "../../../shared/moderation.ts";
 import type { Settings } from "../../App/settings";
@@ -34,6 +35,14 @@ export interface GameMenuProps {
   onLeave: () => void;
   /** Ends the session. Only there when somebody signed in. */
   onSignOut?: () => void;
+  /** Only when there is more than one room: where the player is, and how to travel. */
+  rooms?: {
+    floors: FloorInfo[] | null;
+    current: string | null;
+    onTravel: (floor: string) => void;
+    /** Opens the map of rooms. */
+    onOpenMap: () => void;
+  };
   /** Only for somebody the server lets moderate: who is here, and how to ask for an action on them. */
   moderation?: {
     people: ModerationPerson[];
@@ -48,4 +57,5 @@ export type Panel =
   | "emotes"
   | "controls"
   | "options"
+  | "rooms"
   | "moderation";

@@ -1,6 +1,13 @@
 import { auditActor, type AuditRecorder } from "./audit.ts";
 import type { BanStore } from "./banStore.ts";
-import type { AdminReply, AdminRequest } from "./floorAdmin.ts";
+import {
+  floorIdsOf,
+  type AdminReply,
+  type AdminRequest,
+  type KnownFloors,
+} from "./floorAdmin.ts";
+import { mayEnterFloor } from "./floorAccess.ts";
+import type { FloorStore } from "./floorStore.ts";
 import type { UserStore } from "./userStore.ts";
 
 const MAX_USER_ID_LENGTH = 128;
@@ -10,9 +17,13 @@ const HEADS = /^\/admin\/floors\/([^/]+)\/heads$/;
 export interface PeopleAdminDeps {
   users: UserStore;
   /** The floors that exist. */
-  knownFloors: readonly string[];
+  knownFloors: KnownFloors;
   /** Where naming and removing heads are noted: who did it. */
   audit?: AuditRecorder;
+  /** The floors with their names and who was given an entry: without it the list says nothing of that. */
+  floors?: Pick<FloorStore, "list" | "allGrants">;
+  /** Somebody stopped being head of a floor: the people inside may have to leave. */
+  onAccessChanged?: (floor: string, userId: string) => void;
   /** Who is banned now, to show next to each person. Without it the list says nothing of bans. */
   bans?: BanStore;
   now?: () => number;
@@ -46,24 +57,52 @@ async function route(
           ]),
         )
       : null;
+    const floorInfo = deps.floors
+      ? (await deps.floors.list()).map(({ id, name, common }) => ({
+          id,
+          name,
+          common,
+        }))
+      : null;
+    const grants = deps.floors ? await deps.floors.allGrants() : [];
     return {
       status: 200,
       body: {
-        floors: [...deps.knownFloors],
-        people: (await deps.users.list()).map((person) => ({
-          id: person.id,
-          name: person.name,
-          email: person.email,
-          isAdmin: person.isAdmin,
-          headOf: person.headOf,
-          ...(banned ? { bannedUntil: banned.get(person.id) ?? null } : {}),
-        })),
+        floors: [...(await floorIdsOf(deps.knownFloors))],
+        ...(floorInfo ? { floorInfo } : {}),
+        people: (await deps.users.list()).map((person) => {
+          const access = grants
+            .filter((grant) => grant.userId === person.id)
+            .map((grant) => grant.floor);
+          return {
+            id: person.id,
+            name: person.name,
+            email: person.email,
+            isAdmin: person.isAdmin,
+            headOf: person.headOf,
+            ...(floorInfo
+              ? {
+                  access,
+                  canEnter: floorInfo
+                    .filter((floor) =>
+                      mayEnterFloor(
+                        { admin: person.isAdmin, headOf: person.headOf },
+                        floor,
+                        access.includes(floor.id),
+                      ),
+                    )
+                    .map((floor) => floor.id),
+                }
+              : {}),
+            ...(banned ? { bannedUntil: banned.get(person.id) ?? null } : {}),
+          };
+        }),
       },
     };
   }
 
   const floor = heads![1];
-  if (!deps.knownFloors.includes(floor))
+  if (!(await floorIdsOf(deps.knownFloors)).includes(floor))
     return { status: 404, body: { error: "No such floor." } };
   if (request.method !== "POST")
     return { status: 405, body: { error: "Use POST." } };
@@ -102,7 +141,7 @@ async function route(
     await deps.users.removeHead(floor, userId);
     changed = wasHead;
   }
-  if (changed)
+  if (changed) {
     await deps.audit?.({
       ...auditActor(actor),
       action: head ? "head.assign" : "head.remove",
@@ -110,6 +149,15 @@ async function route(
       targetName: (await deps.users.get(userId))?.name ?? null,
       floor,
     });
+    if (!head) {
+      try {
+        deps.onAccessChanged?.(floor, userId);
+      } catch (error) {
+        // The head is gone whatever the rooms make of the news
+        console.error("Could not tell the rooms about the change:", error);
+      }
+    }
+  }
   return { status: 200, body: { floor, userId, head } };
 }
 

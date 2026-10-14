@@ -1,4 +1,4 @@
-import type { Appearance } from "../shared/appearance.ts";
+import { parseAppearance, type Appearance } from "../shared/appearance.ts";
 
 /** Somebody who signed in at least once. Their id is the sign-in service's. */
 export interface UserRecord {
@@ -110,8 +110,8 @@ export class MemoryUserStore implements UserStore {
   }
 
   async appearanceOf(userId: string) {
-    const look = this.looks.get(userId);
-    return look ? { ...look } : null;
+    // Read as the database does: strictly, and with what is missing plain
+    return parseAppearance(this.looks.get(userId));
   }
 
   async setAppearance(userId: string, appearance: Appearance) {

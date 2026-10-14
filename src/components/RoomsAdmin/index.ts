@@ -1,0 +1,1 @@
+export { RoomsAdmin } from "./RoomsAdmin";

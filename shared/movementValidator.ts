@@ -56,6 +56,17 @@ export class MovementValidator {
     return { x: this.x, z: this.z };
   }
 
+  /**
+   * Puts the player somewhere without judging how they got there: the server
+   * itself moved them (onto a chair, off it). The budget starts again, as when they joined.
+   */
+  teleport(to: { x: number; z: number }, now: number): void {
+    this.x = to.x;
+    this.z = to.z;
+    this.lastAt = now;
+    this.budget = BUDGET_PER_SECOND * INITIAL_BUDGET_SECONDS;
+  }
+
   validate(next: { x: number; z: number }, now: number): MoveVerdict {
     const elapsed = Math.max(0, now - this.lastAt) / 1000;
     this.lastAt = now;

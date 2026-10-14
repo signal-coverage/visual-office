@@ -25,6 +25,7 @@
 @import "@heroui/styles/components/input-group.css" layer(components);
 @import "@heroui/styles/components/kbd.css" layer(components);
 @import "@heroui/styles/components/label.css" layer(components);
+@import "@heroui/styles/components/link.css" layer(components);
 @import "@heroui/styles/components/list-box.css" layer(components);
 @import "@heroui/styles/components/list-box-item.css" layer(components);
 @import "@heroui/styles/components/list-box-section.css" layer(components);
@@ -40,6 +41,7 @@
 @import "@heroui/styles/components/surface.css" layer(components);
 @import "@heroui/styles/components/table.css" layer(components);
 @import "@heroui/styles/components/tabs.css" layer(components);
+@import "@heroui/styles/components/textarea.css" layer(components);
 @import "@heroui/styles/components/textfield.css" layer(components);
 @import "@heroui/styles/components/toggle-button.css" layer(components);
 @import "@heroui/styles/components/toggle-button-group.css" layer(components);

@@ -11,6 +11,7 @@ import {
   sanitizeFurniture,
   type Furniture,
 } from "./furniture.ts";
+import { interactablesOf, type Interactable } from "./interactions.ts";
 import { OFFICE_FURNITURE, OFFICE_MODELS } from "./officeData.ts";
 import { COLORS, type BoxPiece } from "./pieces.ts";
 import {
@@ -202,9 +203,13 @@ export interface FloorScene {
   /** The furniture that is left once the malformed entries are out. */
   furniture: Furniture[];
   models: PropPlacement[];
+  /** The fixed shell alone: walls, glass, room floors and the frames of the boards. */
+  shell: BoxPiece[];
   pieces: BoxPiece[];
   plants: PlantPiece[];
   colliders: Box[];
+  /** What can be used: seats, desks, shelves, plants. */
+  interactables: Interactable[];
 }
 
 /**
@@ -218,6 +223,7 @@ export function sceneFor(layout: Layout): FloorScene {
   return {
     furniture,
     models,
+    shell: shellPieces,
     pieces: [...shellPieces, ...furniture.flatMap(piecesOf)],
     plants: furniture
       .filter((item) => item.kind === "plant")
@@ -227,6 +233,7 @@ export function sceneFor(layout: Layout): FloorScene {
       ...furniture.flatMap(furnitureColliders),
       ...models.flatMap((prop) => footprintCollider(prop) ?? []),
     ],
+    interactables: interactablesOf({ furniture, models }),
   };
 }
 
@@ -246,6 +253,9 @@ const DEFAULT_SCENE = sceneFor({
 });
 BOX_PIECES.push(...DEFAULT_SCENE.pieces);
 PLANTS.push(...DEFAULT_SCENE.plants);
+
+/** What can be used in the default layout. */
+export const OFFICE_INTERACTABLES: Interactable[] = DEFAULT_SCENE.interactables;
 
 /** Everything a player bumps into, as XZ boxes: the shell, the furniture and your own models. */
 export const OFFICE_COLLIDERS: Box[] = DEFAULT_SCENE.colliders;

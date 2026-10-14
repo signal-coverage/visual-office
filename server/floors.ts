@@ -1,5 +1,5 @@
-import { FLOOR_ID } from "../shared/floors.ts";
 import { FloorLocks, type FloorLockStore } from "./floorLocks.ts";
+import { MemoryFloorStore, type FloorStore } from "./floorStore.ts";
 import { MemoryLayoutStore, type LayoutStore } from "./layoutStore.ts";
 import type { ModerationRooms } from "./moderationService.ts";
 
@@ -36,8 +36,29 @@ export const layouts: LayoutStore = {
   lastGood: (floor) => layoutStore.lastGood(floor),
 };
 
-/** The floors this server runs. */
-export const KNOWN_FLOORS: readonly string[] = [FLOOR_ID];
+let floorStore: FloorStore = new MemoryFloorStore();
+
+/** Where the floors are kept from now on: memory until the server connects a database. */
+export function setFloorStore(next: FloorStore): void {
+  floorStore = next;
+}
+
+/** The floors of the building and who has an entry for each. One for the whole server. */
+export const floorDirectory: FloorStore = {
+  list: () => floorStore.list(),
+  get: (id) => floorStore.get(id),
+  create: (input) => floorStore.create(input),
+  rename: (id, name) => floorStore.rename(id, name),
+  grant: (floor, userId) => floorStore.grant(floor, userId),
+  revoke: (floor, userId) => floorStore.revoke(floor, userId),
+  floorsOf: (userId) => floorStore.floorsOf(userId),
+  allGrants: () => floorStore.allGrants(),
+};
+
+/** The ids of the floors there are now: floors are made while the server runs, so this is asked for each time. */
+export async function knownFloorIds(): Promise<string[]> {
+  return (await floorDirectory.list()).map((floor) => floor.id);
+}
 
 /** What a game room offers so its floor can be closed. */
 export interface ClosableRoom {
@@ -85,6 +106,8 @@ export interface ModeratedRoom {
   removeUser: (userId: string, code: number, message: string) => number;
   /** Takes this person's microphone away (or gives it back). Returns how many sessions of theirs there were. */
   setVoiceMuted: (userId: string, muted: boolean) => Promise<number>;
+  /** Somebody's roles or entries changed: sends them out if they may no longer be here. */
+  accessChanged?: (userId: string) => void;
 }
 
 const moderatedRooms = new Map<string, Set<ModeratedRoom>>();
@@ -100,6 +123,18 @@ export function registerModeratedRoom(
   return () => {
     set.delete(room);
   };
+}
+
+/** Tells every room of a floor that what somebody may do there changed (an entry was taken away, a head was removed). */
+export function recheckAccess(floor: string, userId: string): void {
+  for (const room of moderatedRooms.get(floor) ?? []) {
+    try {
+      room.accessChanged?.(userId);
+    } catch (error) {
+      // One room failing must not leave the person in the others
+      console.error("A room could not check somebody's access:", error);
+    }
+  }
 }
 
 /** Moderation, applied to every room of a floor. */
