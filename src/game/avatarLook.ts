@@ -156,6 +156,38 @@ const CHIN_Y = HEAD_CENTER - HEAD.height / 2;
 const TORSO_FRONT = -TORSO.depth / 2;
 const NECK_Y = TORSO_CENTER + TORSO.height / 2;
 
+/**
+ * How far in front of the torso each layer of what is worn over the chest
+ * stands (the shirt's own panels, then the accents, then the lanyard). Two
+ * pieces that overlap never share a layer, and none has a face on the torso's
+ * own plane: flat faces at the same depth flicker over each other as the
+ * avatar turns.
+ */
+export const CHEST = {
+  shirt: 0.008,
+  accent: 0.014,
+  strap: 0.022,
+  card: 0.03,
+  clip: 0.036,
+} as const;
+/** How far the back of a chest piece sinks into the torso, out of sight. */
+const CHEST_SINK = 0.01;
+
+/** A flat piece over the chest: [width, height] at [x, y], `layer` in front of the torso. */
+const chest = (
+  size: readonly [number, number],
+  at: readonly [number, number],
+  layer: number,
+  paint: Paint,
+  options: Options = {},
+): Piece =>
+  torso(
+    [size[0], size[1], CHEST_SINK + layer],
+    [at[0], at[1], TORSO_FRONT + (CHEST_SINK - layer) / 2],
+    paint,
+    options,
+  );
+
 /** Hair: the colour is the player's. Pieces that sit on the head are `top`: a hat covers them. */
 export const HAIR_PIECES: Record<HairStyle, Piece[]> = {
   short: [
@@ -324,11 +356,9 @@ export const TOP_PIECES: Record<Top, Piece[]> = {
   tee: [],
   hoodie: [
     torso([0.34, 0.14, 0.12], [0, NECK_Y + 0.01, 0.12], "shirt"),
-    torso([0.3, 0.1, 0.012], [0, 0.97, TORSO_FRONT - 0.006], "shirtDark"),
+    chest([0.3, 0.1], [0, 0.97], CHEST.shirt, "shirtDark"),
     ...[-0.05, 0.05].map((x) =>
-      torso([0.012, 0.12, 0.01], [x, 1.33, TORSO_FRONT - 0.005], "white", {
-        fine: true,
-      }),
+      chest([0.012, 0.12], [x, 1.33], CHEST.accent, "white", { fine: true }),
     ),
     arm(
       [ARM.width + 0.01, 0.04, ARM.depth + 0.01],
@@ -338,18 +368,15 @@ export const TOP_PIECES: Record<Top, Piece[]> = {
   ],
   collar: [
     torso([0.3, 0.045, 0.3], [0, NECK_Y + 0.0155, 0], "white"),
-    torso([0.05, 0.04, 0.012], [0, NECK_Y - 0.03, TORSO_FRONT - 0.006], ACCENT),
-    torso([0.06, 0.3, 0.012], [0, NECK_Y - 0.2, TORSO_FRONT - 0.006], ACCENT),
+    chest([0.05, 0.04], [0, NECK_Y - 0.03], CHEST.accent, ACCENT),
+    chest([0.06, 0.3], [0, NECK_Y - 0.2], CHEST.shirt, ACCENT),
   ],
   blazer: [
-    torso([0.12, 0.36, 0.012], [0, 1.24, TORSO_FRONT - 0.006], "white"),
-    torso(
-      [0.06, 0.36, 0.016],
-      [-0.07, 1.24, TORSO_FRONT - 0.008],
-      "shirtDark",
-      { rot: [0, 0, 0.18] },
-    ),
-    torso([0.06, 0.36, 0.016], [0.07, 1.24, TORSO_FRONT - 0.008], "shirtDark", {
+    chest([0.12, 0.36], [0, 1.24], CHEST.shirt, "white"),
+    chest([0.06, 0.36], [-0.07, 1.24], CHEST.accent, "shirtDark", {
+      rot: [0, 0, 0.18],
+    }),
+    chest([0.06, 0.36], [0.07, 1.24], CHEST.accent, "shirtDark", {
       rot: [0, 0, -0.18],
     }),
     arm(
@@ -372,18 +399,14 @@ export const ACCESSORY_PIECES: Record<Accessory, Piece[]> = {
     gear([0.5, 0.03, 0.05], [0, 1.96, 0], DARK),
   ],
   lanyard: [
-    torso([0.02, 0.26, 0.01], [-0.06, 1.28, TORSO_FRONT - 0.007], STRAP, {
+    chest([0.02, 0.26], [-0.06, 1.28], CHEST.strap, STRAP, {
       rot: [0, 0, 0.22],
     }),
-    torso([0.02, 0.26, 0.01], [0.06, 1.28, TORSO_FRONT - 0.007], STRAP, {
+    chest([0.02, 0.26], [0.06, 1.28], CHEST.strap, STRAP, {
       rot: [0, 0, -0.22],
     }),
-    torso([0.09, 0.12, 0.012], [0, 1.1, TORSO_FRONT - 0.006], "white", {
-      fine: true,
-    }),
-    torso([0.09, 0.03, 0.014], [0, 1.145, TORSO_FRONT - 0.007], STRAP, {
-      fine: true,
-    }),
+    chest([0.09, 0.12], [0, 1.1], CHEST.card, "white", { fine: true }),
+    chest([0.09, 0.03], [0, 1.145], CHEST.clip, STRAP, { fine: true }),
   ],
   watch: [
     arm([0.155, 0.035, ARM.depth + 0.01], [0, -ARM.height - 0.01, 0], WATCH, {
@@ -396,7 +419,7 @@ export const ACCESSORY_PIECES: Record<Accessory, Piece[]> = {
     }),
   ],
   scarf: [
-    torso([0.34, 0.09, 0.34], [0, NECK_Y + 0.005, 0], ACCENT),
+    torso([0.36, 0.09, 0.36], [0, NECK_Y + 0.005, 0], ACCENT),
     torso([0.1, 0.26, 0.02], [-0.08, 1.25, -0.18], ACCENT),
   ],
 };

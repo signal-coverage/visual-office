@@ -2,7 +2,7 @@ import { cn } from "../../lib/cn";
 
 export const dialog = "w-full max-w-3xl rounded-xl p-5 shadow-2xl";
 export const title = "font-display text-xl font-bold";
-export const body = "gap-4";
+export const body = "flex flex-col gap-4";
 export const notice = "m-0 text-sm text-muted";
 export const error = "m-0 text-sm text-danger";
 export const room = "w-full max-w-xs";

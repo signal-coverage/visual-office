@@ -455,3 +455,69 @@ describe("colour helpers", () => {
     expect(mix(0x000000, 0xffffff, 0.5)).toBe(0x808080);
   });
 });
+
+describe("what is worn over the chest", () => {
+  const front = -TORSO.depth / 2;
+
+  const chestPieces = (top: number, accessory: number) =>
+    lookPieces(
+      { ...withOption("top", top), accessory } as Appearance,
+      "high",
+    ).filter(
+      (piece) =>
+        piece.anchor === "torso" &&
+        !piece.body &&
+        Math.abs(piece.at[2] - front) < 0.03 &&
+        (piece.rot?.[0] ?? 0) === 0 &&
+        (piece.rot?.[1] ?? 0) === 0,
+    );
+
+  const frontFace = (piece: {
+    at: readonly number[];
+    size: readonly number[];
+  }) => piece.at[2] - piece.size[2] / 2;
+  const backFace = (piece: {
+    at: readonly number[];
+    size: readonly number[];
+  }) => piece.at[2] + piece.size[2] / 2;
+
+  it("sinks its back into the torso and stands out of it, so no face of it is level with the front of the body", () => {
+    for (const top of TOPS.keys())
+      for (const accessory of ACCESSORIES.keys())
+        for (const piece of chestPieces(top, accessory)) {
+          expect(backFace(piece)).toBeGreaterThanOrEqual(front + 0.005);
+          expect(frontFace(piece)).toBeLessThanOrEqual(front - 0.006);
+        }
+  });
+
+  it("puts the front of every piece that overlaps another one at its own depth, whatever top and accessory are worn together", () => {
+    const reach = (piece: {
+      size: readonly number[];
+      rot?: readonly number[];
+    }) => {
+      const roll = piece.rot?.[2] ?? 0;
+      const [w, h] = piece.size;
+      return [
+        (Math.abs(Math.cos(roll)) * w + Math.abs(Math.sin(roll)) * h) / 2,
+        (Math.abs(Math.sin(roll)) * w + Math.abs(Math.cos(roll)) * h) / 2,
+      ];
+    };
+    for (const top of TOPS.keys())
+      for (const accessory of ACCESSORIES.keys()) {
+        const pieces = chestPieces(top, accessory);
+        for (let i = 0; i < pieces.length; i++)
+          for (let j = i + 1; j < pieces.length; j++) {
+            const [ax, ay] = reach(pieces[i]);
+            const [bx, by] = reach(pieces[j]);
+            const overlapX =
+              ax + bx - Math.abs(pieces[i].at[0] - pieces[j].at[0]);
+            const overlapY =
+              ay + by - Math.abs(pieces[i].at[1] - pieces[j].at[1]);
+            if (overlapX > 0.002 && overlapY > 0.002)
+              expect(
+                Math.abs(frontFace(pieces[i]) - frontFace(pieces[j])),
+              ).toBeGreaterThanOrEqual(0.006);
+          }
+      }
+  });
+});

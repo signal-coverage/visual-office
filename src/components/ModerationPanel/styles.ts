@@ -1,6 +1,6 @@
 export const title = "font-display text-2xl font-bold";
 export const intro = "mb-3 text-sm text-muted";
-export const body = "gap-4";
+export const body = "flex flex-col gap-4";
 export const banLength = "w-44";
 export const list =
   "m-0 flex max-h-72 list-none flex-col gap-2 overflow-y-auto p-0";
