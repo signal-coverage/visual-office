@@ -86,3 +86,28 @@ export function saveAppearance(appearance: Appearance) {
 export function debugFromUrl(): boolean {
   return new URLSearchParams(window.location.search).has("debug");
 }
+
+/** What decides whether the office should tell the player to click to take the mouse back. */
+export interface ClickPromptState {
+  online: boolean;
+  /** The mouse is captured by the scene. */
+  locked: boolean;
+  menuOpen: boolean;
+  chatOpen: boolean;
+  calendarOpen: boolean;
+}
+
+/**
+ * Whether to ask for a click: the player is in the office with a free mouse and
+ * nothing that took it on purpose. The browser does not let Esc give the mouse
+ * back (it is not a click), so after closing the menu with it this is the cue.
+ */
+export function showClickPrompt(state: ClickPromptState): boolean {
+  return (
+    state.online &&
+    !state.locked &&
+    !state.menuOpen &&
+    !state.chatOpen &&
+    !state.calendarOpen
+  );
+}

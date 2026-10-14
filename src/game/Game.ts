@@ -43,6 +43,7 @@ import { areaAt } from "../../shared/areas.ts";
 import { CallController } from "./CallController";
 import { FpsMeter } from "./FpsMeter";
 import { isSoftwareRenderer, readGpuName } from "./gpu";
+import { shouldDropKeys } from "./lockKeys";
 import { connect, type Connection } from "./network";
 import { buildOffice, disposeOffice } from "./office";
 import { loadProps } from "./props";
@@ -205,6 +206,8 @@ export class Game {
   private readonly screen: ScreenDisplay;
   /** The left mouse button is down while the mouse is captured. */
   private drawing = false;
+  /** Whether the mouse was captured the last time the browser announced a change. */
+  private wasLocked = false;
   private boardAim: BoardAim | null = null;
   private area: string | null = null;
   private readonly lookDirection = new THREE.Vector3();
@@ -572,6 +575,8 @@ export class Game {
   }
 
   private readonly requestLock = () => {
+    // Already captured (a click while walking): asking again only makes the browser announce it again
+    if (this.isLocked) return;
     // Returns a promise in Chromium and nothing elsewhere. It rejects when the
     // browser refuses (no focus, or re-locking too soon); the user just clicks again.
     Promise.resolve(this.canvas.requestPointerLock()).catch(() => {});
@@ -620,6 +625,10 @@ export class Game {
   // Keys released while the mouse was free (e.g. typing in the chat) never
   // fire keyup here, so drop them to avoid a character that walks on its own.
   private readonly onLockChange = () => {
+    const locked = this.isLocked;
+    const drop = shouldDropKeys(this.wasLocked, locked);
+    this.wasLocked = locked;
+    if (!drop) return;
     this.keys.clear();
     this.setEmoteKeyHeld(false);
     this.drawing = false;

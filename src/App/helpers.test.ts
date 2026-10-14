@@ -16,7 +16,11 @@ import {
   KICKED_MESSAGE,
 } from "../../shared/moderation.ts";
 import { CONNECTION_LOST_MESSAGE, UNREACHABLE_MESSAGE } from "./consts";
-import { messageForDisconnect, messageForJoinError } from "./helpers";
+import {
+  messageForDisconnect,
+  messageForJoinError,
+  showClickPrompt,
+} from "./helpers";
 
 describe("messageForDisconnect", () => {
   it("says the floor was closed for editing when that is why", () => {
@@ -74,5 +78,33 @@ describe("messageForJoinError", () => {
     ]) {
       expect(messageForJoinError(error)).toBe(UNREACHABLE_MESSAGE);
     }
+  });
+});
+
+describe("showClickPrompt", () => {
+  const playing = {
+    online: true,
+    locked: false,
+    menuOpen: false,
+    chatOpen: false,
+    calendarOpen: false,
+  };
+
+  it("asks for a click when the player is in the office and the mouse is free, with nothing else open", () => {
+    expect(showClickPrompt(playing)).toBe(true);
+  });
+
+  it("does not, while the mouse is captured", () => {
+    expect(showClickPrompt({ ...playing, locked: true })).toBe(false);
+  });
+
+  it("does not, while the menu, the chat or the calendar has the mouse on purpose", () => {
+    expect(showClickPrompt({ ...playing, menuOpen: true })).toBe(false);
+    expect(showClickPrompt({ ...playing, chatOpen: true })).toBe(false);
+    expect(showClickPrompt({ ...playing, calendarOpen: true })).toBe(false);
+  });
+
+  it("does not, outside the office", () => {
+    expect(showClickPrompt({ ...playing, online: false })).toBe(false);
   });
 });

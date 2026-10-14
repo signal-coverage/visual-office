@@ -34,6 +34,7 @@ import { playBeep } from "../chat/sound";
 import { useRoomNow } from "../calendar/useRoomCalendar";
 import { CalendarBadge } from "../components/CalendarBadge";
 import { BoardHint } from "../components/BoardHint";
+import { ClickPrompt } from "../components/ClickPrompt";
 import { ChatPanel } from "../components/ChatPanel";
 import { ClosingBanner } from "../components/ClosingBanner";
 import { DebugOverlay } from "../components/DebugOverlay";
@@ -70,6 +71,7 @@ import {
   nameFromUrl,
   saveAppearance,
   saveName,
+  showClickPrompt,
 } from "./helpers";
 import {
   DEFAULT_SETTINGS,
@@ -101,6 +103,9 @@ export function App({ signedIn }: AppProps) {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   /** The chat takes the mouse too: that must not open the menu. */
   const chatOpen = useRef(false);
+  // The same two facts as state, for what is drawn: the click prompt
+  const [mouseLocked, setMouseLocked] = useState(false);
+  const [chatShown, setChatShown] = useState(false);
   /** Set when the player chose to leave, so the game goes to the first screen and not to an error. */
   const leaving = useRef(false);
   const [hasLeft, setHasLeft] = useState(false);
@@ -243,6 +248,7 @@ export function App({ signedIn }: AppProps) {
   useEffect(() => {
     if (phase !== "online") return;
     const onLockChange = () => {
+      setMouseLocked(document.pointerLockElement !== null);
       if (
         document.pointerLockElement === null &&
         !chatOpen.current &&
@@ -501,6 +507,15 @@ export function App({ signedIn }: AppProps) {
           <Toast text={notice} />
           <Toast text={alert} slot="alert" />
           <BoardHint ink={boardInk} />
+          <ClickPrompt
+            shown={showClickPrompt({
+              online: phase === "online",
+              locked: mouseLocked,
+              menuOpen,
+              chatOpen: chatShown,
+              calendarOpen,
+            })}
+          />
           <EmoteBar shown={emoteKeyHeld} />
           {showRoster && <UserList roster={roster} />}
           <SelfView element={selfView} />
@@ -513,6 +528,7 @@ export function App({ signedIn }: AppProps) {
             onClose={() => gameRef.current?.relock()}
             onOpenChange={(open) => {
               chatOpen.current = open;
+              setChatShown(open);
               if (open && !document.hidden) setUnread(0);
             }}
           />
