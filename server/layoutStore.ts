@@ -13,7 +13,10 @@ export interface StoredLayout extends Layout {
 }
 
 /** A line of a floor's history, without the (larger) contents. */
-export type LayoutSummary = Omit<StoredLayout, "furniture" | "models"> & {
+export type LayoutSummary = Omit<
+  StoredLayout,
+  "furniture" | "models" | "shell"
+> & {
   /** Somebody vouched that this version is fine to go back to. */
   good: boolean;
 };
@@ -50,11 +53,13 @@ export class MemoryLayoutStore implements LayoutStore {
   }
 
   async current(floor: string) {
-    return this.versions.get(floor)?.at(-1) ?? null;
+    const found = this.versions.get(floor)?.at(-1);
+    return found ? structuredClone(found) : null;
   }
 
   async get(floor: string, version: number) {
-    return this.versions.get(floor)?.[version - 1] ?? null;
+    const found = this.versions.get(floor)?.[version - 1];
+    return found ? structuredClone(found) : null;
   }
 
   async history(floor: string, limit = 50) {
@@ -92,7 +97,9 @@ export class MemoryLayoutStore implements LayoutStore {
       version: list.length + 1,
       author,
       createdAt: this.now(),
-      ...structuredClone(layout),
+      furniture: structuredClone(layout.furniture),
+      models: structuredClone(layout.models),
+      ...(layout.shell ? { shell: structuredClone(layout.shell) } : {}),
     };
     this.versions.set(floor, [...list, stored]);
     return structuredClone(stored);

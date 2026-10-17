@@ -15,9 +15,11 @@ import {
   type ChatScope,
 } from "../../../shared/chat.ts";
 import { cn } from "../../lib/cn";
+import { useKeyboardInset } from "../../touch/useKeyboardInset";
 import { StatusDot } from "../StatusDot";
 import {
   CANCEL_KEY,
+  CLOSE_LABEL,
   MAX_VISIBLE_MESSAGES,
   NEARBY_TAG,
   NOBODY,
@@ -27,6 +29,10 @@ import {
   PICK_SOMEBODY,
   PLACEHOLDERS,
   SCOPE_LABEL,
+  SEND_LABEL,
+  TOUCH_PLACEHOLDERS,
+  TOUCH_VISIBLE_MESSAGES,
+  TOUCH_WRITING_MESSAGES,
   YOU,
 } from "./consts";
 import * as styles from "./styles";
@@ -43,6 +49,8 @@ export function ChatPanel({
   onOpen,
   onClose,
   onOpenChange,
+  touch = false,
+  openRequest = 0,
 }: ChatPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -55,8 +63,11 @@ export function ChatPanel({
   const targetName = people.find((p) => p.id === target)?.name;
   const placeholder =
     scope === "dm" && targetName
-      ? `Message ${targetName} and press Enter`
-      : PLACEHOLDERS[scope];
+      ? touch
+        ? `Message ${targetName}`
+        : `Message ${targetName} and press Enter`
+      : (touch ? TOUCH_PLACEHOLDERS : PLACEHOLDERS)[scope];
+  const keyboard = useKeyboardInset(touch && isOpen);
 
   const open = () => {
     setIsOpen(true);
@@ -77,6 +88,16 @@ export function ChatPanel({
     return () => document.removeEventListener("keydown", openOnKey);
   }, [isOpen, onOpen, onOpenChange]);
 
+  // The button of the touch controls opens the chat
+  const handledRequest = useRef(openRequest);
+  useEffect(() => {
+    if (openRequest === handledRequest.current) return;
+    handledRequest.current = openRequest;
+    setIsOpen(true);
+    onOpen();
+    onOpenChange(true);
+  }, [openRequest, onOpen, onOpenChange]);
+
   useEffect(() => {
     if (isOpen) inputRef.current?.focus();
   }, [isOpen]);
@@ -87,27 +108,47 @@ export function ChatPanel({
     onOpenChange(false);
   };
 
+  const send = () => {
+    const text = draft.trim();
+    // A direct message needs somebody to go to: keep what was typed until there is
+    if (text && scope === "dm" && !target) return;
+    if (text) onSend(text, scope, scope === "dm" ? target! : undefined);
+    close();
+    onClose();
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // Stop here: otherwise this same event reaches the document listener that
     // re-registers once the panel closes, and the chat would reopen itself.
     if (e.code === CANCEL_KEY) {
       e.stopPropagation();
       close();
-    } else if (e.code === OPEN_KEY) {
+    } else if (e.code === OPEN_KEY || (touch && e.key === "Enter")) {
       e.stopPropagation();
-      const text = draft.trim();
-      // A direct message needs somebody to go to: keep what was typed until there is
-      if (text && scope === "dm" && !target) return;
-      if (text) onSend(text, scope, scope === "dm" ? target! : undefined);
-      close();
-      onClose();
+      send();
     }
   };
 
+  const visibleMessages = touch
+    ? isOpen
+      ? TOUCH_WRITING_MESSAGES
+      : TOUCH_VISIBLE_MESSAGES
+    : MAX_VISIBLE_MESSAGES;
+
   return (
-    <div className={styles.container} data-chat>
+    <div
+      className={
+        touch
+          ? isOpen
+            ? styles.touchWriting
+            : styles.touchContainer
+          : styles.container
+      }
+      style={touch ? styles.keyboardInset(keyboard) : undefined}
+      data-chat
+    >
       <ul className={styles.list}>
-        {messages.slice(-MAX_VISIBLE_MESSAGES).map((m) => (
+        {messages.slice(-visibleMessages).map((m) => (
           <li
             key={`${m.id}-${m.at}`}
             className={cn(styles.message, m.scope === "dm" && styles.direct)}
@@ -188,28 +229,65 @@ export function ChatPanel({
               </Select.Popover>
             </Select>
           )}
-          <Input
-            ref={inputRef}
-            aria-label={placeholder}
-            className={styles.input}
-            value={draft}
-            maxLength={MAX_CHAT_LENGTH}
-            placeholder={placeholder}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
+          {touch ? (
+            <div className={styles.row}>
+              <Input
+                ref={inputRef}
+                aria-label={placeholder}
+                className={cn(styles.touchInput, styles.rowInput)}
+                value={draft}
+                maxLength={MAX_CHAT_LENGTH}
+                placeholder={placeholder}
+                enterKeyHint="send"
+                autoComplete="off"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={handleKeyDown}
+              />
+              <Button className={styles.rowButton} onPress={send}>
+                {SEND_LABEL}
+              </Button>
+              <Button
+                variant="secondary"
+                aria-label={CLOSE_LABEL}
+                className={styles.rowButton}
+                onPress={() => {
+                  close();
+                  onClose();
+                }}
+              >
+                ✕
+              </Button>
+            </div>
+          ) : (
+            <Input
+              ref={inputRef}
+              aria-label={placeholder}
+              className={styles.input}
+              value={draft}
+              maxLength={MAX_CHAT_LENGTH}
+              placeholder={placeholder}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          )}
         </div>
       ) : (
-        <Badge.Anchor className={styles.anchor}>
-          <Button variant="ghost" className={styles.openButton} onPress={open}>
-            {OPEN_LABEL}
-          </Button>
-          {unread > 0 && (
-            <Badge color="danger" size="sm">
-              <Badge.Label>{unread > 9 ? "9+" : unread}</Badge.Label>
-            </Badge>
-          )}
-        </Badge.Anchor>
+        !touch && (
+          <Badge.Anchor className={styles.anchor}>
+            <Button
+              variant="ghost"
+              className={styles.openButton}
+              onPress={open}
+            >
+              {OPEN_LABEL}
+            </Button>
+            {unread > 0 && (
+              <Badge color="danger" size="sm">
+                <Badge.Label>{unread > 9 ? "9+" : unread}</Badge.Label>
+              </Badge>
+            )}
+          </Badge.Anchor>
+        )
       )}
     </div>
   );

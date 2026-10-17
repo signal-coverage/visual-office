@@ -182,3 +182,46 @@ describe("handleCalendar", () => {
     expect(reply?.status).toBe(503);
   });
 });
+
+describe("handleCalendar on floors with rooms of their own", () => {
+  const rooms = [
+    {
+      id: "meeting",
+      label: "Meeting room",
+      floor: "office",
+      floorName: "Main office",
+    },
+    {
+      id: "hr.room-a",
+      label: "Meeting room A",
+      floor: "hr",
+      floorName: "People",
+    },
+  ];
+  const calendar = () =>
+    createCalendarService({
+      store: new MemorySettingsStore(),
+      fetchFeed: async () => ({ ok: true, text: FEED }),
+      now: () => NOW,
+      rooms: async () => rooms.map((room) => room.id),
+    });
+
+  it("asks for the rooms each time, and says which floor each is on", async () => {
+    const service = calendar();
+    await service.setFeed("hr.room-a", SECRET_URL);
+    const reply = await handleCalendar(
+      { method: "GET", path: "/calendar", query: day },
+      { calendar: service, rooms: async () => rooms, now: () => NOW },
+    );
+    const body = reply?.body.rooms as Array<Record<string, unknown>>;
+    expect(body.map((room) => room.room)).toEqual(["meeting", "hr.room-a"]);
+    expect(body[1]).toMatchObject({
+      label: "Meeting room A",
+      floor: "hr",
+      floorName: "People",
+      configured: true,
+    });
+    expect(body[0]).toMatchObject({ floor: "office", configured: false });
+    expect(JSON.stringify(reply?.body)).not.toContain("SECRETTOKEN");
+  });
+});

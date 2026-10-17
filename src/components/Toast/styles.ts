@@ -3,3 +3,10 @@ const base =
 
 export const toast = `${base} top-24`;
 export const alert = `${base} top-40 border-accent/60`;
+
+/** On a phone they sit in the middle of the screen, clear of the badges on the left and the buttons on the right. */
+const touchBase =
+  "glass pointer-events-none fixed left-1/2 max-w-[calc(100vw-9rem)] -translate-x-1/2 px-4 py-2 text-center text-sm";
+
+export const touchToast = `${touchBase} top-[30%]`;
+export const touchAlert = `${touchBase} top-[42%] border-accent/60`;

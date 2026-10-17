@@ -2,10 +2,17 @@ import {
   COMMON_FLOOR_ID,
   FLOOR_ACCESS_LOST_CODE,
   FLOOR_ACCESS_LOST_MESSAGE,
+  FLOOR_ARCHIVED_CODE,
+  FLOOR_ARCHIVED_NOTICE,
   FLOOR_NOT_AVAILABLE_TEXT,
   FLOOR_UPDATED_CODE,
   type FloorInfo,
 } from "../../shared/floors.ts";
+import {
+  restartRetryDelayMs,
+  SERVER_RESTARTING_CODE,
+  SERVER_RESTARTING_MESSAGE,
+} from "../../shared/restart.ts";
 import { messageForDisconnect } from "../App/helpers";
 
 export type TravelDecision =
@@ -46,14 +53,14 @@ export type AfterDisconnect =
   /** Leaving on purpose: back to the first screen, nothing to apologise for. */
   | { kind: "lobby" }
   /** The game joins `floor` by itself, with no first screen in between. */
-  | { kind: "rejoin"; floor: string; notice?: string }
+  | { kind: "rejoin"; floor: string; notice?: string; delayMs?: number }
   /** Back to the first screen, with the reason. */
   | { kind: "offline"; message: string };
 
 /**
  * What the game does when its connection to a room is over: the same ladder
- * for leaving, travelling, a layout that was published and access that was
- * taken away.
+ * for leaving, travelling, a layout that was published, access that was
+ * taken away and a room that was archived.
  */
 export function afterDisconnect(input: {
   code: number;
@@ -62,16 +69,31 @@ export function afterDisconnect(input: {
   travelTo: string | null;
   /** The room they were in. */
   floor: string;
+  /** Spreads out the wait after a restart; the clock's own by default. */
+  random?: () => number;
 }): AfterDisconnect {
   if (input.leaving) return { kind: "lobby" };
   if (input.travelTo) return { kind: "rejoin", floor: input.travelTo };
   if (input.code === FLOOR_UPDATED_CODE)
     return { kind: "rejoin", floor: input.floor };
+  if (input.code === SERVER_RESTARTING_CODE)
+    return {
+      kind: "rejoin",
+      floor: input.floor,
+      notice: SERVER_RESTARTING_MESSAGE,
+      delayMs: restartRetryDelayMs(0, input.random) ?? 0,
+    };
   if (input.code === FLOOR_ACCESS_LOST_CODE)
     return {
       kind: "rejoin",
       floor: COMMON_FLOOR_ID,
       notice: FLOOR_ACCESS_LOST_MESSAGE,
+    };
+  if (input.code === FLOOR_ARCHIVED_CODE)
+    return {
+      kind: "rejoin",
+      floor: COMMON_FLOOR_ID,
+      notice: FLOOR_ARCHIVED_NOTICE,
     };
   return { kind: "offline", message: messageForDisconnect(input.code) };
 }

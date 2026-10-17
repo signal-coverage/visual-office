@@ -1,7 +1,7 @@
-import type { Problem, Target } from "../../../shared/officeProblems.ts";
+import type { EditorProblem } from "../problems";
 
 export interface ProblemListProps {
-  problems: Problem[];
-  /** Selects the first thing a problem is about. */
-  onSelect: (target: Target) => void;
+  problems: EditorProblem[];
+  /** Selects what a problem is about (the part of the shell, or the furniture). */
+  onSelect: (problem: EditorProblem) => void;
 }

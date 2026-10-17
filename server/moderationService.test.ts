@@ -5,7 +5,7 @@ import {
   KICKED_CODE,
 } from "../shared/moderation.ts";
 import type { AuditInput } from "./auditStore.ts";
-import { MemoryBanStore } from "./banStore.ts";
+import { MemoryBanStore, type BanStore } from "./banStore.ts";
 import {
   joinBan,
   moderate,
@@ -19,7 +19,7 @@ const MINUTE = 60_000;
 
 describe("moderate", () => {
   let users: MemoryUserStore;
-  let bans: MemoryBanStore;
+  let bans: BanStore;
   let recorded: AuditInput[];
   /** Who is in the office, by user id. */
   let present: Set<string>;
@@ -257,6 +257,22 @@ describe("moderate", () => {
         "user_beto",
         BANNED_CODE,
       ]);
+    });
+
+    it("tells the store who banned", async () => {
+      const calls: unknown[] = [];
+      const ban = bans.ban.bind(bans);
+      bans.ban = async (userId, minutes, now, meta) => {
+        calls.push(meta);
+        return ban(userId, minutes, now, meta);
+      };
+      await moderate(
+        asHead,
+        { action: "ban", targetUserId: "user_beto", minutes: 5 },
+        "office",
+        deps,
+      );
+      expect(calls).toEqual([{ byUserId: "user_hana" }]);
     });
 
     it("bans for ten minutes when no length is given", async () => {

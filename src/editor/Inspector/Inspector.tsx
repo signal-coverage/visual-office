@@ -1,79 +1,8 @@
-import { Button, Label, ListBox, NumberField, Select } from "@heroui/react";
+import { Button } from "@heroui/react";
 import { CATALOG } from "../../../shared/furniture.ts";
+import { ChoiceField, NumberInput } from "../Fields";
 import * as styles from "./styles";
-import type {
-  ChoiceFieldProps,
-  InspectorProps,
-  NumberFieldProps,
-} from "./types";
-
-/** A number that is applied when the person leaves the field or presses Enter, not on each keystroke. */
-function NumberInput({
-  label,
-  value,
-  step,
-  min,
-  isDisabled,
-  onCommit,
-}: NumberFieldProps) {
-  return (
-    <NumberField
-      className={styles.field}
-      value={value}
-      step={step}
-      minValue={min}
-      isDisabled={isDisabled}
-      onChange={(next) => {
-        if (next !== undefined && Number.isFinite(next) && next !== value)
-          onCommit(next);
-      }}
-    >
-      <Label>{label}</Label>
-      <NumberField.Group>
-        <NumberField.Input />
-      </NumberField.Group>
-    </NumberField>
-  );
-}
-
-function ChoiceField({
-  label,
-  value,
-  options,
-  isDisabled,
-  onChoose,
-}: ChoiceFieldProps) {
-  return (
-    <Select
-      className={styles.field}
-      value={value}
-      isDisabled={isDisabled}
-      onChange={(next) => {
-        if (next !== null && !Array.isArray(next)) onChoose(Number(next));
-      }}
-    >
-      <Label>{label}</Label>
-      <Select.Trigger>
-        <Select.Value />
-        <Select.Indicator />
-      </Select.Trigger>
-      <Select.Popover>
-        <ListBox>
-          {options.map((option) => (
-            <ListBox.Item
-              key={option.value}
-              id={option.value}
-              textValue={option.label}
-            >
-              {option.label}
-              <ListBox.ItemIndicator />
-            </ListBox.Item>
-          ))}
-        </ListBox>
-      </Select.Popover>
-    </Select>
-  );
-}
+import type { InspectorProps } from "./types";
 
 const POSTER_COLOURS = [
   { value: 0, label: "Blue" },

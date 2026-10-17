@@ -88,7 +88,9 @@ export async function moderate(
         return refused("not_here");
     } else if (action === "ban") {
       minutes = banMinutes(command.minutes);
-      await deps.bans.ban(target.id, minutes, deps.now());
+      await deps.bans.ban(target.id, minutes, deps.now(), {
+        byUserId: actor.id,
+      });
       // Whether they are here or not, they cannot come back until it ends
       deps.rooms.removeUser(floor, target.id, BANNED_CODE, BANNED_MESSAGE);
     } else if (action === "unban") {

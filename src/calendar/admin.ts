@@ -4,6 +4,9 @@ import type { Request } from "./calendar";
 export interface FeedRoom {
   room: string;
   label: string;
+  /** The floor it is on, and what that is called, when the server says. */
+  floor?: string;
+  floorName?: string;
   url: string | null;
 }
 
@@ -19,6 +22,8 @@ const isFeedRoom = (value: unknown): value is FeedRoom => {
   return (
     typeof room.room === "string" &&
     typeof room.label === "string" &&
+    (room.floor === undefined || typeof room.floor === "string") &&
+    (room.floorName === undefined || typeof room.floorName === "string") &&
     (room.url === null || typeof room.url === "string")
   );
 };

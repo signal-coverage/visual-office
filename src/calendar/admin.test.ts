@@ -147,3 +147,28 @@ describe("describeFeedTest", () => {
     ).toBe("Does not work: The calendar server answered 404.");
   });
 });
+
+describe("fetchFeeds, with floors", () => {
+  it("brings the floor of each room when the server says it", async () => {
+    const rooms = [
+      { room: "meeting", label: "Meeting room", url: null },
+      {
+        room: "hr.room-a",
+        label: "Meeting room A",
+        floor: "hr",
+        floorName: "People",
+        url: "https://x.example/a.ics",
+      },
+    ];
+    expect(await fetchFeeds(api({ body: { rooms } }).request, base)).toEqual(
+      rooms,
+    );
+  });
+
+  it("refuses a room whose floor is not text", async () => {
+    const rooms = [
+      { room: "a", label: "A", floor: 3, floorName: "x", url: null },
+    ];
+    expect(await fetchFeeds(api({ body: { rooms } }).request, base)).toBeNull();
+  });
+});

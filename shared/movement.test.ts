@@ -34,3 +34,19 @@ describe("sanitizeMove", () => {
     expect(move!.z).toBeGreaterThan(-OFFICE_DEPTH / 2);
   });
 });
+
+describe("sanitizeMove in another floor", () => {
+  const small = { width: 24, depth: 16 };
+
+  it("clamps to the walls of that floor", () => {
+    const move = sanitizeMove({ x: 999, z: -999, yaw: 0 }, small)!;
+    expect(move.x).toBeCloseTo(12 - 0.15 - 0.4);
+    expect(move.z).toBeCloseTo(-8 + 0.15 + 0.4);
+  });
+
+  it("lets a position that is out in a bigger floor through in that one", () => {
+    const big = { width: 36, depth: 20 };
+    expect(sanitizeMove({ x: 16, z: 0, yaw: 0 }, big)!.x).toBe(16);
+    expect(sanitizeMove({ x: 16, z: 0, yaw: 0 }, small)!.x).toBeLessThan(16);
+  });
+});

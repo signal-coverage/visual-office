@@ -27,5 +27,9 @@ dist-ssr
 tools/
 .playwright-mcp/
 
+# Playwright output (npm run test:e2e)
+test-results/
+playwright-report/
+
 .vercel
 .env*

@@ -23,4 +23,8 @@ export interface ChatPanelProps {
   onClose: () => void;
   /** Called whenever the input opens or closes, so the rest of the screen knows whether the chat is being read. */
   onOpenChange: (open: boolean) => void;
+  /** On a phone: the chat opens from a button of the touch controls (see `openRequest`), sits clear of the joystick and the keyboard, and has a Send button. */
+  touch?: boolean;
+  /** Opens the chat each time it grows (the touch controls count their presses of the chat button). */
+  openRequest?: number;
 }

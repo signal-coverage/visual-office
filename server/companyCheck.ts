@@ -1,3 +1,4 @@
+import { parseDsn } from "../shared/sentryReporter.ts";
 import { authStatusFromEnv } from "./authStatus.ts";
 import { databaseUrlFromEnv } from "./db/connect.ts";
 import { voiceStatusFromEnv } from "./voice.ts";
@@ -99,6 +100,20 @@ export function checkCompany(server: Env, site: Env): Finding[] {
     warn(
       "VOICE_ROOM_PREFIX is not set: fine if this company has its own LiveKit project; if it shares one with another company, set it or their voice rooms will be the same",
     );
+
+  // Error monitoring is optional: it is only ever advice
+  for (const [env, name, where] of [
+    [server, "SENTRY_DSN", "the server"],
+    [site, "VITE_SENTRY_DSN", "the site"],
+  ] as const) {
+    const dsn = set(env, name);
+    if (!dsn)
+      warn(
+        `${name} is not set: recommended, so failures on ${where} are reported instead of going unnoticed (see docs/BUILDING.md, Operations)`,
+      );
+    else if (!parseDsn(dsn))
+      warn(`${name} is not a valid Sentry address: no errors will be reported`);
+  }
 
   if (set(server, "FLOOR_ADMIN_TOKEN"))
     warn(

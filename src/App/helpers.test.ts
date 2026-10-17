@@ -8,6 +8,8 @@ import {
 import {
   FLOOR_ACCESS_LOST_CODE,
   FLOOR_ACCESS_LOST_MESSAGE,
+  FLOOR_ARCHIVED_CODE,
+  FLOOR_ARCHIVED_MESSAGE,
   FLOOR_CLOSED_CODE,
   FLOOR_CLOSED_MESSAGE,
   FLOOR_FORBIDDEN_CODE,
@@ -21,16 +23,27 @@ import {
   KICKED_CODE,
   KICKED_MESSAGE,
 } from "../../shared/moderation.ts";
+import {
+  SERVER_RESTARTING_CODE,
+  SERVER_RESTARTING_MESSAGE,
+} from "../../shared/restart.ts";
 import { CONNECTION_LOST_MESSAGE, UNREACHABLE_MESSAGE } from "./consts";
 import {
   messageForDisconnect,
   messageForJoinError,
   showClickPrompt,
+  touchSceneCovered,
 } from "./helpers";
 
 describe("messageForDisconnect", () => {
   it("says the floor was closed for editing when that is why", () => {
     expect(messageForDisconnect(FLOOR_CLOSED_CODE)).toBe(FLOOR_CLOSED_MESSAGE);
+  });
+
+  it("says the server is restarting, when it was", () => {
+    expect(messageForDisconnect(SERVER_RESTARTING_CODE)).toBe(
+      SERVER_RESTARTING_MESSAGE,
+    );
   });
 
   it("says a moderator removed you, instead of a lost connection", () => {
@@ -123,6 +136,33 @@ describe("showClickPrompt", () => {
   it("does not, outside the office", () => {
     expect(showClickPrompt({ ...playing, online: false })).toBe(false);
   });
+
+  it("never on a touch screen: there is no mouse to take, so there is nothing to click", () => {
+    expect(showClickPrompt({ ...playing, touch: true })).toBe(false);
+    expect(showClickPrompt({ ...playing, touch: false })).toBe(true);
+  });
+});
+
+describe("touchSceneCovered", () => {
+  const clear = {
+    menuOpen: false,
+    chatOpen: false,
+    calendarOpen: false,
+    mapOpen: false,
+    panelOpen: false,
+  };
+
+  it("leaves the fingers on the scene when nothing covers it", () => {
+    expect(touchSceneCovered(clear)).toBe(false);
+  });
+
+  it("takes them off it while the menu, the chat, the calendar, the map or a computer is open", () => {
+    expect(touchSceneCovered({ ...clear, menuOpen: true })).toBe(true);
+    expect(touchSceneCovered({ ...clear, chatOpen: true })).toBe(true);
+    expect(touchSceneCovered({ ...clear, calendarOpen: true })).toBe(true);
+    expect(touchSceneCovered({ ...clear, mapOpen: true })).toBe(true);
+    expect(touchSceneCovered({ ...clear, panelOpen: true })).toBe(true);
+  });
 });
 
 describe("the rooms", () => {
@@ -147,6 +187,25 @@ describe("the rooms", () => {
     expect(messageForJoinError(refused(503, FLOOR_UNAVAILABLE_MESSAGE))).toBe(
       FLOOR_UNAVAILABLE_MESSAGE,
     );
+  });
+
+  it("says a room is archived, whether it was refused at the door (410) or the player was inside", () => {
+    expect(messageForDisconnect(FLOOR_ARCHIVED_CODE)).toBe(
+      FLOOR_ARCHIVED_MESSAGE,
+    );
+    const refused = (code: number, message: string) =>
+      Object.assign(new Error(message), { code });
+    expect(messageForJoinError(refused(410, FLOOR_ARCHIVED_MESSAGE))).toBe(
+      FLOOR_ARCHIVED_MESSAGE,
+    );
+    expect(messageForJoinError(refused(FLOOR_ARCHIVED_CODE, "closed"))).toBe(
+      FLOOR_ARCHIVED_MESSAGE,
+    );
+  });
+
+  it("does not take every 410 for an archived room", () => {
+    const refused = Object.assign(new Error("Gone"), { code: 410 });
+    expect(messageForJoinError(refused)).toBe(UNREACHABLE_MESSAGE);
   });
 
   it("does not take every 404 or 503 for a room that is not there", () => {

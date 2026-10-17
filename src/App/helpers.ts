@@ -4,6 +4,7 @@ import {
 } from "../../shared/appearance.ts";
 import { messageForAuthCode } from "../../shared/auth.ts";
 import {
+  FLOOR_ARCHIVED_MESSAGE,
   FLOOR_CLOSED_CODE,
   FLOOR_CLOSED_MESSAGE,
   FLOOR_UNAVAILABLE_MESSAGE,
@@ -11,6 +12,10 @@ import {
   messageForFloorCode,
 } from "../../shared/floors.ts";
 import { messageForModerationCode } from "../../shared/moderation.ts";
+import {
+  SERVER_RESTARTING_CODE,
+  SERVER_RESTARTING_MESSAGE,
+} from "../../shared/restart.ts";
 import {
   APPEARANCE_STORAGE_KEY,
   CONNECTION_LOST_MESSAGE,
@@ -20,6 +25,7 @@ import {
 
 /** Why somebody is back at the menu after being connected. */
 export function messageForDisconnect(code: number): string {
+  if (code === SERVER_RESTARTING_CODE) return SERVER_RESTARTING_MESSAGE;
   return code === FLOOR_CLOSED_CODE
     ? FLOOR_CLOSED_MESSAGE
     : (messageForModerationCode(code) ??
@@ -30,6 +36,7 @@ export function messageForDisconnect(code: number): string {
 /** The refusals the server gives before there is a room come as plain HTTP statuses: its own words are the ones to show. */
 const PRE_ROOM_MESSAGES = new Map<number, string>([
   [404, FLOOR_UNKNOWN_MESSAGE],
+  [410, FLOOR_ARCHIVED_MESSAGE],
   [503, FLOOR_UNAVAILABLE_MESSAGE],
 ]);
 
@@ -121,6 +128,8 @@ export interface ClickPromptState {
   mapOpen: boolean;
   /** A computer or a shelf is open: it has the mouse on purpose. */
   panelOpen: boolean;
+  /** The office is walked with fingers: there is no mouse to take. */
+  touch?: boolean;
 }
 
 /**
@@ -131,11 +140,38 @@ export interface ClickPromptState {
 export function showClickPrompt(state: ClickPromptState): boolean {
   return (
     state.online &&
+    !state.touch &&
     !state.locked &&
     !state.menuOpen &&
     !state.chatOpen &&
     !state.calendarOpen &&
     !state.mapOpen &&
     !state.panelOpen
+  );
+}
+
+/** What can cover the scene so that a finger on it is not for the office. */
+export interface TouchCoverState {
+  menuOpen: boolean;
+  chatOpen: boolean;
+  calendarOpen: boolean;
+  mapOpen: boolean;
+  /** A computer or a shelf is open (one a person reads with the mouse). */
+  panelOpen: boolean;
+}
+
+/**
+ * Whether the touch controls are put away: with the menu, the chat, the
+ * calendar, the map or a computer on screen, a finger belongs to them, and the
+ * avatar must neither walk nor turn behind them. (With a mouse, the same thing
+ * happens by itself: the mouse is let go of.)
+ */
+export function touchSceneCovered(state: TouchCoverState): boolean {
+  return (
+    state.menuOpen ||
+    state.chatOpen ||
+    state.calendarOpen ||
+    state.mapOpen ||
+    state.panelOpen
   );
 }

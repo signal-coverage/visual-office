@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  FLOOR_ARCHIVED_CODE,
+  FLOOR_ARCHIVED_MESSAGE,
   FLOOR_FORBIDDEN_CODE,
   FLOOR_UNAVAILABLE_CODE,
   FLOOR_UNKNOWN_CODE,
@@ -10,6 +12,7 @@ import {
   statusBeforeTheRoom,
 } from "./floorEntry.ts";
 import { MemoryFloorStore } from "./floorStore.ts";
+import { MemoryGroupStore } from "./groupStore.ts";
 import { MemoryUserStore } from "./userStore.ts";
 
 describe("floorFromOptions", () => {
@@ -44,11 +47,17 @@ describe("floorFromOptions", () => {
 describe("checkEntry", () => {
   let floors: MemoryFloorStore;
   let users: MemoryUserStore;
+  let groups: MemoryGroupStore;
   const check = (floor: string, userId: string | null) =>
-    checkEntry(floor, userId, { floors, rolesOf: (id) => users.rolesOf(id) });
+    checkEntry(floor, userId, {
+      floors,
+      groups,
+      rolesOf: (id) => users.rolesOf(id),
+    });
 
   beforeEach(async () => {
     floors = new MemoryFloorStore(() => 1);
+    groups = new MemoryGroupStore(() => 1, floors);
     users = new MemoryUserStore();
     for (const id of ["user_ana", "user_beto", "user_cris", "user_dora"])
       await users.upsert({ id, email: null, name: id });
@@ -100,6 +109,46 @@ describe("checkEntry", () => {
     });
   });
 
+  it("lets in somebody whose group has the floor, and stops when they leave the group or it loses the floor", async () => {
+    await groups.create({ id: "people", name: "People" });
+    await groups.setFloor("people", "hr", true);
+    expect(await check("hr", "user_ana")).toMatchObject({
+      ok: false,
+      code: FLOOR_FORBIDDEN_CODE,
+    });
+    await groups.setMember("people", "user_ana", true);
+    expect((await check("hr", "user_ana")).ok).toBe(true);
+    await groups.setFloor("people", "hr", false);
+    expect(await check("hr", "user_ana")).toMatchObject({ ok: false });
+    await groups.setFloor("people", "hr", true);
+    await groups.setMember("people", "user_ana", false);
+    expect(await check("hr", "user_ana")).toMatchObject({ ok: false });
+  });
+
+  it("refuses an archived floor to everybody, with its own code and message, and lets it back in when it is brought back", async () => {
+    await groups.create({ id: "people", name: "People" });
+    await groups.setFloor("people", "hr", true);
+    await groups.setMember("people", "user_ana", true);
+    await floors.archive("hr");
+    for (const id of [
+      "user_ana",
+      "user_beto",
+      "user_cris",
+      "user_dora",
+      null,
+    ]) {
+      const refused = await check("hr", id);
+      expect(refused, String(id)).toMatchObject({
+        ok: false,
+        code: FLOOR_ARCHIVED_CODE,
+        message: FLOOR_ARCHIVED_MESSAGE,
+      });
+    }
+    await floors.unarchive("hr");
+    for (const id of ["user_ana", "user_beto", "user_cris", "user_dora", null])
+      expect((await check("hr", id)).ok, String(id)).toBe(true);
+  });
+
   it("refuses when it cannot find out, except for the common floor, which must not lock everybody out", async () => {
     floors.get = async () => {
       throw new Error("database down");
@@ -127,6 +176,7 @@ describe("statusBeforeTheRoom", () => {
     expect(statusBeforeTheRoom(FLOOR_UNKNOWN_CODE)).toBe(404);
     expect(statusBeforeTheRoom(FLOOR_UNAVAILABLE_CODE)).toBe(503);
     expect(statusBeforeTheRoom(FLOOR_FORBIDDEN_CODE)).toBe(403);
+    expect(statusBeforeTheRoom(FLOOR_ARCHIVED_CODE)).toBe(410);
   });
 
   it("is always a valid HTTP status, even for a code it does not know", () => {

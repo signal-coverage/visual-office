@@ -113,6 +113,31 @@ describe("describeAudit", () => {
     ).toBe("Ana removed somebody from office");
   });
 
+  it("names the room of a calendar change by its label and floor when the entry has them", () => {
+    expect(
+      describeAudit(
+        entry({
+          action: "calendar.set",
+          floor: null,
+          detail: {
+            room: "hr.room-a",
+            label: "Meeting room A",
+            floor: "People",
+          },
+        }),
+      ),
+    ).toBe("Ana set the calendar of Meeting room A (People)");
+    expect(
+      describeAudit(
+        entry({
+          action: "calendar.clear",
+          floor: null,
+          detail: { room: "hr.room-a", label: "Meeting room A" },
+        }),
+      ),
+    ).toBe("Ana removed the calendar of Meeting room A");
+  });
+
   it("describes calendar changes by room, and never mentions an address", () => {
     expect(
       describeAudit(
@@ -146,6 +171,24 @@ describe("describeAudit for rooms", () => {
           action: "floor.create",
           floor: "hr",
           detail: { name: "Human Resources" },
+        }),
+      ),
+    ).toBe("Ana made the room Human Resources (hr)");
+    expect(
+      describeAudit(
+        entry({
+          action: "floor.create",
+          floor: "hr",
+          detail: { name: "Human Resources", template: "meeting" },
+        }),
+      ),
+    ).toBe("Ana made the room Human Resources (hr) from the meeting template");
+    expect(
+      describeAudit(
+        entry({
+          action: "floor.create",
+          floor: "hr",
+          detail: { name: "Human Resources", template: "office" },
         }),
       ),
     ).toBe("Ana made the room Human Resources (hr)");
@@ -223,6 +266,98 @@ describe("describeAudit for content", () => {
         "content.create",
         "content.update",
         "content.delete",
+      ]),
+    );
+  });
+});
+
+describe("describeAudit for archiving rooms", () => {
+  it("describes archiving and bringing back a room", () => {
+    expect(
+      describeAudit(
+        entry({ action: "floor.archive", floor: "hr", detail: { name: "HR" } }),
+      ),
+    ).toBe("Ana archived the room HR (hr)");
+    expect(describeAudit(entry({ action: "floor.archive", floor: "hr" }))).toBe(
+      "Ana archived the room hr",
+    );
+    expect(
+      describeAudit(
+        entry({
+          action: "floor.unarchive",
+          floor: "hr",
+          detail: { name: "HR" },
+        }),
+      ),
+    ).toBe("Ana brought back the room HR (hr)");
+    expect(
+      describeAudit(entry({ action: "floor.unarchive", floor: "hr" })),
+    ).toBe("Ana brought back the room hr");
+  });
+
+  it("are recorded actions", () => {
+    expect(AUDIT_ACTIONS).toEqual(
+      expect.arrayContaining(["floor.archive", "floor.unarchive"]),
+    );
+  });
+});
+
+describe("describeAudit for groups", () => {
+  const group = (
+    action: string,
+    detail: Record<string, unknown>,
+    extra: Partial<AuditEntry> = {},
+  ) => describeAudit(entry({ action, floor: null, detail, ...extra }));
+
+  it("describes making, renaming and deleting a group", () => {
+    expect(group("group.create", { name: "Human Resources" })).toBe(
+      "Ana made the group Human Resources",
+    );
+    expect(group("group.rename", { from: "People", to: "HR" })).toBe(
+      "Ana renamed the group People to HR",
+    );
+    expect(group("group.delete", { name: "HR" })).toBe(
+      "Ana deleted the group HR",
+    );
+  });
+
+  it("describes adding and removing a member", () => {
+    const person = { targetUserId: "user_beto", targetName: "Beto" };
+    expect(group("group.member", { name: "HR", member: true }, person)).toBe(
+      "Ana added Beto to the group HR",
+    );
+    expect(group("group.member", { name: "HR", member: false }, person)).toBe(
+      "Ana removed Beto from the group HR",
+    );
+  });
+
+  it("describes giving and taking away a room", () => {
+    expect(
+      group("group.floor", { name: "HR", allowed: true }, { floor: "lab" }),
+    ).toBe("Ana let the group HR enter lab");
+    expect(
+      group("group.floor", { name: "HR", allowed: false }, { floor: "lab" }),
+    ).toBe("Ana stopped the group HR entering lab");
+  });
+
+  it("still reads right when the details are missing", () => {
+    expect(group("group.create", {})).toBe("Ana made a group");
+    expect(group("group.rename", {})).toBe("Ana renamed a group");
+    expect(group("group.delete", {})).toBe("Ana deleted a group");
+    expect(group("group.member", {})).toBe(
+      "Ana changed the members of a group",
+    );
+    expect(group("group.floor", {})).toBe("Ana changed the rooms of a group");
+  });
+
+  it("are recorded actions", () => {
+    expect(AUDIT_ACTIONS).toEqual(
+      expect.arrayContaining([
+        "group.create",
+        "group.rename",
+        "group.delete",
+        "group.member",
+        "group.floor",
       ]),
     );
   });

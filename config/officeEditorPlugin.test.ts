@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   exportPublished,
+  floorRouteOf,
   forwardFloor,
   isLocalHost,
   listModelFiles,
@@ -369,6 +370,16 @@ describe("forwardFloor", () => {
     });
   });
 
+  it("talks about another room when told which", async () => {
+    const server = fakeServer({ status: 200, body: { locked: true } });
+    await forwardFloor(
+      "lock",
+      { holder: "me" },
+      { fetch: server.fetch, baseUrl: base, floor: "marketing" },
+    );
+    expect(server.calls[0].url).toBe(`${base}/admin/floors/marketing/lock`);
+  });
+
   it("asks how the floor is with a GET and no body", async () => {
     const server = fakeServer({ status: 200, body: { locked: false } });
     await forwardFloor("status", undefined, {
@@ -485,6 +496,34 @@ describe("forwardFloor", () => {
     );
     expect(reply.status).toBe(502);
     expect(reply.body).toMatchObject({ unreachable: true });
+  });
+});
+
+describe("floorRouteOf", () => {
+  it("knows the routes of the main office, as they always were", () => {
+    expect(floorRouteOf("/floor/lock")).toEqual({
+      action: "lock",
+      floor: undefined,
+    });
+    expect(floorRouteOf("/floor/layout")).toEqual({
+      action: "layout",
+      floor: undefined,
+    });
+  });
+
+  it("knows the routes of a room", () => {
+    expect(floorRouteOf("/floors/marketing/publish")).toEqual({
+      action: "publish",
+      floor: "marketing",
+    });
+  });
+
+  it("does not take an id that is not a room's, or an action that is not one", () => {
+    expect(floorRouteOf("/floors/Not Valid/lock")).toBeNull();
+    expect(floorRouteOf("/floors/../lock")).toBeNull();
+    expect(floorRouteOf("/floors/admin/lock")).toBeNull();
+    expect(floorRouteOf("/floor/delete")).toBeNull();
+    expect(floorRouteOf("/floors/marketing/lock/extra")).toBeNull();
   });
 });
 

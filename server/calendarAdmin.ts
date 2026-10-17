@@ -1,6 +1,10 @@
 import { auditActor, type AuditRecorder } from "./audit.ts";
 import { feedUrlProblem, normalizeFeedUrl } from "./calendarFetch.ts";
-import type { CalendarService } from "./calendarService.ts";
+import {
+  resolveRooms,
+  type CalendarService,
+  type RoomSource,
+} from "./calendarService.ts";
 import type { AdminReply, AdminRequest } from "./floorAdmin.ts";
 
 const CALENDARS = "/admin/calendars";
@@ -9,7 +13,7 @@ const TEST = "/admin/calendars/test";
 export interface CalendarAdminDeps {
   calendar: CalendarService;
   /** The rooms that can have a calendar. */
-  rooms: ReadonlyArray<{ id: string; label: string }>;
+  rooms: RoomSource;
   audit?: AuditRecorder;
   /** TEST ONLY: lets feeds be plain http on this machine (see calendarOptionsFromEnv). */
   allowLocalForTests?: boolean;
@@ -55,11 +59,16 @@ async function route(
 
   if (request.method === "GET") {
     const rooms = await Promise.all(
-      deps.rooms.map(async ({ id, label }) => ({
-        room: id,
-        label,
-        url: await deps.calendar.feedOf(id),
-      })),
+      (await resolveRooms(deps.rooms)).map(
+        async ({ id, label, floor, floorName }) => ({
+          room: id,
+          label,
+          ...(floor !== undefined && floorName !== undefined
+            ? { floor, floorName }
+            : {}),
+          url: await deps.calendar.feedOf(id),
+        }),
+      ),
     );
     return { status: 200, body: { rooms } };
   }
@@ -68,8 +77,17 @@ async function route(
 
   const body = bodyOf(request);
   const room = body?.room;
-  if (typeof room !== "string" || !deps.rooms.some(({ id }) => id === room))
+  const known = await resolveRooms(deps.rooms);
+  const found = known.find(({ id }) => id === room);
+  if (typeof room !== "string" || !found)
     return bad("Choose a room that exists.");
+  // Who and which room, by name and floor: never the address, which may hold a secret
+  const detail = {
+    room,
+    ...(found.floorName !== undefined
+      ? { label: found.label, floor: found.floorName }
+      : {}),
+  };
   const url = body?.url;
   if (url === undefined) return bad("Give the address of the calendar feed.");
 
@@ -78,7 +96,7 @@ async function route(
     await deps.audit?.({
       ...auditActor(actor),
       action: "calendar.clear",
-      detail: { room },
+      detail,
     });
     return { status: 200, body: { room, url: null } };
   }
@@ -91,7 +109,7 @@ async function route(
   await deps.audit?.({
     ...auditActor(actor),
     action: "calendar.set",
-    detail: { room },
+    detail,
   });
   return {
     status: 200,

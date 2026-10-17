@@ -3,6 +3,7 @@ import type { Box } from "./collision.ts";
 import type { Furniture } from "./furniture.ts";
 import {
   aimedInteractable,
+  actionFor,
   hintFor,
   interactablesOf,
   INTERACT_RANGE,
@@ -286,6 +287,25 @@ describe("hintFor", () => {
     expect(hint(desk)).toBe("Click or F · Use the computer");
     expect(hint(plant)).toBe("Click or F · Look at the plant");
     expect(hint(only([], [shelf()])[0])).toBe("Click or F · Read a book");
+  });
+});
+
+describe("actionFor", () => {
+  it("is the words of the hint without the keys, for a screen that has none", () => {
+    const [chair, desk, plant] = only([
+      item("chair", 0, 0),
+      item("desk", 4, 0),
+      item("plant", 8, 0),
+    ]);
+    expect(actionFor(chair)).toBe("Sit down");
+    expect(actionFor(desk)).toBe("Use the computer");
+    expect(actionFor(plant)).toBe("Look at the plant");
+    expect(actionFor(only([], [shelf()])[0])).toBe("Read a book");
+  });
+
+  it("is what the hint says after the keys", () => {
+    const [chair] = only([item("chair", 0, 0)]);
+    expect(hintFor(chair)).toBe(`Click or F · ${actionFor(chair)}`);
   });
 });
 

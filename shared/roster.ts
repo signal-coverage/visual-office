@@ -1,5 +1,5 @@
 import type { Status } from "./presence.ts";
-import { zoneLabel } from "./zones.ts";
+import { ZONES, zoneLabel, type Zone } from "./zones.ts";
 
 /** One player as the list needs to know them. */
 export interface RosterEntry {
@@ -37,7 +37,11 @@ const OFFICE_TITLE = "In the office";
  * private zone it is only the people in that zone, so the list never reveals
  * who else is online while you are in a meeting.
  */
-export function buildRoster(players: RosterEntry[], selfId: string): Roster {
+export function buildRoster(
+  players: RosterEntry[],
+  selfId: string,
+  zones: readonly Zone[] = ZONES,
+): Roster {
   const myZone = players.find((p) => p.id === selfId)?.zone ?? null;
   const visible = myZone ? players.filter((p) => p.zone === myZone) : players;
 
@@ -48,7 +52,7 @@ export function buildRoster(players: RosterEntry[], selfId: string): Roster {
       color: p.color,
       you: p.id === selfId,
       status: p.status,
-      place: !myZone && p.zone ? zoneLabel(p.zone) : null,
+      place: !myZone && p.zone ? zoneLabel(p.zone, zones) : null,
     }))
     .sort((a, b) => {
       if (a.you !== b.you) return a.you ? -1 : 1;
@@ -56,7 +60,7 @@ export function buildRoster(players: RosterEntry[], selfId: string): Roster {
     });
 
   return {
-    title: myZone ? zoneLabel(myZone) : OFFICE_TITLE,
+    title: myZone ? zoneLabel(myZone, zones) : OFFICE_TITLE,
     count: entries.length,
     entries,
   };

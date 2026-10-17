@@ -13,10 +13,12 @@ const server: Record<string, string | undefined> = {
   ADMIN_EMAILS: "boss@acme.com",
   ALLOWED_ORIGINS: "https://office.acme.com",
   VOICE_ROOM_PREFIX: "acme",
+  SENTRY_DSN: "https://publickey@o1.ingest.sentry.io/1",
 };
 const site: Record<string, string | undefined> = {
   VITE_SERVER_URL: "wss://office-acme.up.railway.app",
   VITE_CLERK_PUBLISHABLE_KEY: "pk_live_abc",
+  VITE_SENTRY_DSN: "https://publickey@o2.ingest.sentry.io/2",
 };
 
 const problems = (s = server, v = site) =>
@@ -211,5 +213,39 @@ describe("checkCompany", () => {
     expect(problems({ ...server, FLOOR_ADMIN_TOKEN: "x" })).toEqual([
       expect.stringMatching(/^warning: FLOOR_ADMIN_TOKEN/),
     ]);
+  });
+
+  describe("error monitoring", () => {
+    it("recommends it on the server, as a warning only", () => {
+      expect(problems(without(server, "SENTRY_DSN"))).toEqual([
+        expect.stringMatching(/^warning: SENTRY_DSN.*recommend/i),
+      ]);
+    });
+
+    it("recommends it on the site, as a warning only", () => {
+      expect(problems(server, without(site, "VITE_SENTRY_DSN"))).toEqual([
+        expect.stringMatching(/^warning: VITE_SENTRY_DSN.*recommend/i),
+      ]);
+    });
+
+    it("says when an address is not a Sentry one, without printing it", () => {
+      const found = problems(
+        { ...server, SENTRY_DSN: "nonsense-SECRETDSN" },
+        { ...site, VITE_SENTRY_DSN: "also-SECRETDSN" },
+      );
+      expect(found).toEqual([
+        expect.stringMatching(/^warning: SENTRY_DSN.*not a valid/i),
+        expect.stringMatching(/^warning: VITE_SENTRY_DSN.*not a valid/i),
+      ]);
+      expect(found.join(" ")).not.toContain("SECRETDSN");
+    });
+
+    it("is never an error", () => {
+      const found = checkCompany(
+        without(server, "SENTRY_DSN"),
+        without(site, "VITE_SENTRY_DSN"),
+      );
+      expect(found.every((f) => f.level === "warning")).toBe(true);
+    });
   });
 });

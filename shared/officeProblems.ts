@@ -7,10 +7,11 @@ import {
   isFlat,
   type Furniture,
 } from "./furniture.ts";
-import { OFFICE_FLOOR, SHELL_COLLIDERS } from "./layout.ts";
+import { DEFAULT_SHELL } from "./defaultShell.ts";
 import { footprintCollider, type PropPlacement } from "./props.ts";
-import { SPAWN_AREA } from "./spawn.ts";
-import { ZONES, zoneAt } from "./zones.ts";
+import { shellFloorBox, type Shell } from "./shell.ts";
+import { shellColliders } from "./shellGeometry.ts";
+import { zoneAt, zonesOf } from "./zones.ts";
 
 /** Something about an office layout that would make it unusable or look broken. */
 export type ProblemCode =
@@ -91,10 +92,12 @@ const blockedAt = (x: number, z: number, boxes: Box[]) =>
 /** Which floor points somebody who appears at the spawn area can walk to. */
 function reachableFloor(
   boxes: Box[],
+  floor: Box,
+  spawn: Box,
 ): ((x: number, z: number) => boolean) | null {
   const start = {
-    x: (SPAWN_AREA.minX + SPAWN_AREA.maxX) / 2,
-    z: (SPAWN_AREA.minZ + SPAWN_AREA.maxZ) / 2,
+    x: (spawn.minX + spawn.maxX) / 2,
+    z: (spawn.minZ + spawn.maxZ) / 2,
   };
   if (blockedAt(start.x, start.z, boxes)) return null;
 
@@ -113,8 +116,8 @@ function reachableFloor(
       const nj = j + dj;
       const x = start.x + ni * GRID_STEP;
       const z = start.z + nj * GRID_STEP;
-      if (x < OFFICE_FLOOR.minX || x > OFFICE_FLOOR.maxX) continue;
-      if (z < OFFICE_FLOOR.minZ || z > OFFICE_FLOOR.maxZ) continue;
+      if (x < floor.minX || x > floor.maxX) continue;
+      if (z < floor.minZ || z > floor.maxZ) continue;
       if (seen.has(key(ni, nj)) || blockedAt(x, z, boxes)) continue;
       seen.add(key(ni, nj));
       queue.push([ni, nj]);
@@ -138,12 +141,17 @@ function reachableFloor(
 export function findProblems(
   furniture: Furniture[],
   models: PropPlacement[],
+  shell: Shell = DEFAULT_SHELL,
 ): Problem[] {
   const things = thingsOf(furniture, models);
+  const floor = shellFloorBox(shell);
+  const walls = shellColliders(shell);
+  const zones = zonesOf(shell);
+  const spawnArea = shell.spawn.area;
   const problems: Problem[] = [];
 
   for (const thing of things) {
-    if (thing.extent.some((box) => outside(box, OFFICE_FLOOR))) {
+    if (thing.extent.some((box) => outside(box, floor))) {
       problems.push({
         code: "outside",
         message: `The ${thing.label} sticks out past the walls.`,
@@ -151,9 +159,7 @@ export function findProblems(
       });
     }
     if (
-      thing.colliders.some((box) =>
-        SHELL_COLLIDERS.some((wall) => overlaps(box, wall)),
-      )
+      thing.colliders.some((box) => walls.some((wall) => overlaps(box, wall)))
     ) {
       problems.push({
         code: "wall",
@@ -162,10 +168,10 @@ export function findProblems(
       });
     }
     const spawn: Box = {
-      minX: SPAWN_AREA.minX - PLAYER_RADIUS,
-      maxX: SPAWN_AREA.maxX + PLAYER_RADIUS,
-      minZ: SPAWN_AREA.minZ - PLAYER_RADIUS,
-      maxZ: SPAWN_AREA.maxZ + PLAYER_RADIUS,
+      minX: spawnArea.minX - PLAYER_RADIUS,
+      maxX: spawnArea.maxX + PLAYER_RADIUS,
+      minZ: spawnArea.minZ - PLAYER_RADIUS,
+      maxZ: spawnArea.maxZ + PLAYER_RADIUS,
     };
     if (thing.colliders.some((box) => overlaps(box, spawn))) {
       problems.push({
@@ -191,26 +197,15 @@ export function findProblems(
     }
   }
 
-  const everything = [
-    ...SHELL_COLLIDERS,
-    ...things.flatMap((t) => t.colliders),
-  ];
-  const reachable = reachableFloor(everything);
+  const everything = [...walls, ...things.flatMap((t) => t.colliders)];
+  const reachable = reachableFloor(everything, floor, spawnArea);
   // If people cannot even stand where they appear, the spawn problem above says so
   if (reachable) {
-    for (const zone of ZONES) {
+    for (const zone of zones) {
       let found = false;
-      for (
-        let x = OFFICE_FLOOR.minX;
-        x <= OFFICE_FLOOR.maxX && !found;
-        x += GRID_STEP
-      ) {
-        for (
-          let z = OFFICE_FLOOR.minZ;
-          z <= OFFICE_FLOOR.maxZ;
-          z += GRID_STEP
-        ) {
-          if (zoneAt(x, z, null) === zone.id && reachable(x, z)) {
+      for (let x = floor.minX; x <= floor.maxX && !found; x += GRID_STEP) {
+        for (let z = floor.minZ; z <= floor.maxZ; z += GRID_STEP) {
+          if (zoneAt(x, z, null, zones) === zone.id && reachable(x, z)) {
             found = true;
             break;
           }

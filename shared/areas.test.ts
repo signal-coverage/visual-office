@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OFFICE_DEPTH, OFFICE_WIDTH } from "./constants.ts";
-import { AREAS, areaAt, HALLWAY } from "./areas.ts";
+import { AREAS, areaAt, areasOf, HALLWAY } from "./areas.ts";
 import { zoneById } from "./zones.ts";
 
 describe("the named areas", () => {
@@ -72,5 +72,32 @@ describe("areaAt", () => {
     const x = (area.minX + area.maxX) / 2;
     const z = (area.minZ + area.maxZ) / 2;
     expect(areaAt(x, z)).toBe(label);
+  });
+});
+
+describe("areas of another shell", () => {
+  const areas = areasOf({
+    areas: [
+      { id: "bar", label: "Bar", rect: { minX: 0, maxX: 4, minZ: 0, maxZ: 4 } },
+      {
+        id: "all",
+        label: "Whole floor",
+        rect: { minX: -12, maxX: 12, minZ: -8, maxZ: 8 },
+      },
+    ],
+  });
+
+  it("names a point from the areas it is given, most specific first", () => {
+    expect(areaAt(2, 2, areas)).toBe("Bar");
+    expect(areaAt(-5, -5, areas)).toBe("Whole floor");
+    expect(areaAt(20, 0, areas)).toBe(HALLWAY);
+  });
+
+  it("does not know the default names when given others", () => {
+    expect(areaAt(-10, -8, areas)).toBe("Whole floor");
+  });
+
+  it("keeps the order of the shell", () => {
+    expect(areas.map((a) => a.label)).toEqual(["Bar", "Whole floor"]);
   });
 });

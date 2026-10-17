@@ -1,18 +1,14 @@
-import {
-  BOARDS,
-  boardById,
-  canReachBoard,
-  type Board,
-} from "../shared/boards.ts";
+import { BOARDS, canReachBoard, type Board } from "../shared/boards.ts";
 import { BoardStore, sanitizeStrokeMessage } from "../shared/drawing.ts";
 import { RateLimiter } from "./rateLimiter.ts";
 
 /** What the boards need to know about the room, and how they talk to its players. */
 export interface BoardHost {
-  /** The private zone the player is in, or null. */
+  /** The private zone the player is in, or null for the open floor. */
   zoneOf: (clientId: string) => string | null;
   positionOf: (clientId: string) => { x: number; z: number } | undefined;
-  clientsInZone: (zone: string) => string[];
+  /** Who is in a private zone, or (null) in the open floor. */
+  clientsInZone: (zone: string | null) => string[];
   send: (clientId: string, type: string, payload: unknown) => void;
 }
 
@@ -30,15 +26,22 @@ const CLEAR_PER_SECOND = 1;
  */
 export class BoardService {
   private readonly host: BoardHost;
+  private readonly boards: readonly Board[];
   private readonly stores = new Map<string, BoardStore>();
   private readonly drawLimit: RateLimiter;
   private readonly clearLimit: RateLimiter;
 
-  constructor(host: BoardHost, now: () => number = Date.now) {
+  /** `boards` are the ones of this room's floor: each floor has its own, with its own ink. */
+  constructor(
+    host: BoardHost,
+    now: () => number = Date.now,
+    boards: readonly Board[] = BOARDS,
+  ) {
     this.host = host;
+    this.boards = boards;
     this.drawLimit = new RateLimiter(DRAW_BURST, DRAW_PER_SECOND, now);
     this.clearLimit = new RateLimiter(CLEAR_BURST, CLEAR_PER_SECOND, now);
-    for (const board of BOARDS) this.stores.set(board.id, new BoardStore());
+    for (const board of boards) this.stores.set(board.id, new BoardStore());
   }
 
   /** A piece of a stroke from `author`. Returns whether it was accepted. */
@@ -75,9 +78,9 @@ export class BoardService {
     return true;
   }
 
-  /** `clientId` just walked into `zone`: show them what is on its boards. */
-  enteredZone(clientId: string, zone: string): void {
-    for (const board of BOARDS) {
+  /** `clientId` just walked into `zone` (or, null, out into the open floor): show them what is on its boards. */
+  enteredZone(clientId: string, zone: string | null): void {
+    for (const board of this.boards) {
       if (board.zone !== zone) continue;
       this.host.send(clientId, "board", {
         board: board.id,
@@ -93,7 +96,7 @@ export class BoardService {
 
   /** The board, if `author` is allowed to use it: in its zone and within reach. */
   private boardFor(author: string, boardId: string): Board | null {
-    const board = boardById(boardId);
+    const board = this.boards.find((candidate) => candidate.id === boardId);
     const position = this.host.positionOf(author);
     if (!board || !position) return null;
     if (this.host.zoneOf(author) !== board.zone) return null;

@@ -1,6 +1,11 @@
 import { Button, Card, Kbd } from "@heroui/react";
 import { useEffect } from "react";
-import { CLOSE_CODES, CLOSE_KEYS, CLOSE_LABEL } from "./consts";
+import {
+  CLOSE_CODES,
+  CLOSE_KEYS,
+  CLOSE_LABEL,
+  TOUCH_CLOSE_HINT,
+} from "./consts";
 import * as styles from "./styles";
 import type { InteractionPanelProps } from "./types";
 
@@ -14,6 +19,7 @@ export function InteractionPanel({
   content,
   interactive = false,
   onClose,
+  touch = false,
 }: InteractionPanelProps) {
   const [first, second] = CLOSE_KEYS;
 
@@ -41,8 +47,14 @@ export function InteractionPanel({
         {content}
       </Card.Content>
       <Card.Footer className={styles.footer}>
-        Press <Kbd className={styles.key}>{first}</Kbd> or{" "}
-        <Kbd className={styles.key}>{second}</Kbd> to close
+        {touch ? (
+          !interactive && TOUCH_CLOSE_HINT
+        ) : (
+          <>
+            Press <Kbd className={styles.key}>{first}</Kbd> or{" "}
+            <Kbd className={styles.key}>{second}</Kbd> to close
+          </>
+        )}
         {interactive && onClose && (
           <Button
             size="sm"

@@ -36,12 +36,14 @@ import {
   type Status,
 } from "../shared/presence.ts";
 import { lowestFreeColor } from "../shared/chatColor.ts";
-import { MAX_PLAYERS_PER_ROOM, SPAWN } from "../shared/constants.ts";
+import { MAX_PLAYERS_PER_ROOM } from "../shared/constants.ts";
 import {
   COMMON_FLOOR_ID,
   COMMON_FLOOR_NAME,
   FLOOR_ACCESS_LOST_CODE,
   FLOOR_ACCESS_LOST_MESSAGE,
+  FLOOR_ARCHIVED_CODE,
+  FLOOR_ARCHIVED_MESSAGE,
   FLOOR_CLOSED_CODE,
   FLOOR_CLOSED_MESSAGE,
   FLOOR_FORBIDDEN_CODE,
@@ -51,11 +53,10 @@ import {
   FLOOR_UPDATED_MESSAGE,
   type ClosingMessage,
   type FloorMessage,
-  type LayoutMessage,
 } from "../shared/floors.ts";
-import { OFFICE_FLOOR, sceneFor, type FloorScene } from "../shared/layout.ts";
-import { OFFICE_FURNITURE, OFFICE_MODELS } from "../shared/officeData.ts";
+import { type FloorScene } from "../shared/layout.ts";
 import { sanitizeMove, type Correction } from "../shared/movement.ts";
+import { SERVER_RESTARTING_CODE } from "../shared/restart.ts";
 import { MovementValidator } from "../shared/movementValidator.ts";
 import {
   sanitizeSeatRequest,
@@ -66,7 +67,7 @@ import {
 import { randomSpawn } from "../shared/spawn.ts";
 import { OfficeState, Player } from "../shared/state.ts";
 import { voiceRoomName, type VoiceCredentials } from "../shared/voice.ts";
-import { ZONES, zoneAt, type ZoneMessage } from "../shared/zones.ts";
+import { zoneAt, type ZoneMessage } from "../shared/zones.ts";
 import { routeChat, type ChatPeer } from "./chatRouting.ts";
 import { routeKnock, type KnockPeer } from "./knockRouting.ts";
 import {
@@ -89,6 +90,7 @@ import {
   floorDirectory,
   floorLocks,
   floorRooms,
+  groupDirectory,
   layouts,
   registerModeratedRoom,
   registerRoom,
@@ -105,6 +107,11 @@ import {
   STATUS_COOLDOWN_MS,
 } from "./presence.ts";
 import { maySit, SEAT_COOLDOWN_MS, SeatBook, standSpot } from "./seats.ts";
+import {
+  layoutMessageOf,
+  loadFloorScene,
+  type LoadedScene,
+} from "./floorScene.ts";
 import { enforceZones } from "./zoneEnforcer.ts";
 import type { UserRecord } from "./userStore.ts";
 import { ZoneSwitcher } from "./zoneSwitcher.ts";
@@ -177,11 +184,10 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   private boards!: BoardService;
   private forgetFloor: (() => void) | null = null;
   private forgetModeration: (() => void) | null = null;
-  /** What stands in this floor, and so what blocks people. */
-  private scene: FloorScene = sceneFor({
-    furniture: OFFICE_FURNITURE,
-    models: OFFICE_MODELS,
-  });
+  /** What stands in this floor, with its shell, and so what blocks people: loaded when the room is made. */
+  private scene!: FloorScene;
+  /** What was loaded for this floor, and what each player is told about it. */
+  private loaded!: LoadedScene;
   /** The stored version this room was made from, or null for the default. */
   private layoutVersion: number | null = null;
 
@@ -210,13 +216,15 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       // A moderator's ban: refused at the door until it ends
       const banned = await joinBan(bans, who.user.id, Date.now());
       if (banned) throw new ServerError(banned.code, banned.message);
-      // Whether this person may be on this floor, from what the server has now
-      const entry = await checkEntry(this.floorId, who.user.id, {
-        floors: floorDirectory,
-        rolesOf: (id) => users.rolesOf(id),
-      });
-      if (!entry.ok) throw new ServerError(entry.code, entry.message);
     }
+    // Whether this person may be on this floor, from what the server has now. An
+    // archived floor is closed to everybody, so it is asked with sign-in off too
+    const entry = await checkEntry(this.floorId, who ? who.user.id : null, {
+      floors: floorDirectory,
+      groups: groupDirectory,
+      rolesOf: (id) => users.rolesOf(id),
+    });
+    if (!entry.ok) throw new ServerError(entry.code, entry.message);
     return who ? who.user : true;
   }
 
@@ -286,35 +294,30 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     this.floorId = entry.floor.id;
     this.floorName = entry.floor.name;
 
-    // What stands in the floor is what was last published, or the default
-    // that comes with the build when nothing was (or the database is down)
-    try {
-      const stored = await layouts.current(this.floorId);
-      if (stored) {
-        this.scene = sceneFor(stored);
-        this.layoutVersion = stored.version;
-      }
-    } catch (error) {
-      console.error(
-        "Could not load the floor's layout, using the default:",
-        error,
-      );
-    }
+    // What stands in the floor, and its shell, is what was last published, or
+    // the default that comes with the build when nothing was (or the database is down)
+    this.loaded = await loadFloorScene(this.floorId, layouts);
+    this.scene = this.loaded.scene;
+    this.layoutVersion = this.loaded.version;
     // Only now, so it is told about layouts from the one it was made from on
     this.forgetFloor = registerRoom(this.floorId, this);
     this.forgetModeration = registerModeratedRoom(this.floorId, this);
 
-    this.boards = new BoardService({
-      zoneOf: (id) => this.zones.get(id) ?? null,
-      positionOf: (id) => {
-        const player = this.state.players.get(id);
-        return player && { x: player.x, z: player.z };
+    this.boards = new BoardService(
+      {
+        zoneOf: (id) => this.zones.get(id) ?? null,
+        positionOf: (id) => {
+          const player = this.state.players.get(id);
+          return player && { x: player.x, z: player.z };
+        },
+        clientsInZone: (zone) =>
+          [...this.zones].filter(([, z]) => z === zone).map(([id]) => id),
+        send: (id, type, payload) =>
+          this.clients.find((c) => c.sessionId === id)?.send(type, payload),
       },
-      clientsInZone: (zone) =>
-        [...this.zones].filter(([, z]) => z === zone).map(([id]) => id),
-      send: (id, type, payload) =>
-        this.clients.find((c) => c.sessionId === id)?.send(type, payload),
-    });
+      Date.now,
+      this.scene.boards,
+    );
     this.onMessage("draw", (client, payload) =>
       this.boards.draw(client.sessionId, payload),
     );
@@ -327,7 +330,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       this.voiceAdmin = admin;
       // Only private rooms: being in the open office while standing in a zone
       // reveals nothing of what is said in there, so it is not worth evicting
-      const rooms = ZONES.map((zone) => zone.id);
+      const rooms = this.scene.zones.map((zone) => zone.id);
       this.clock.setInterval(() => {
         void enforceZones(
           admin,
@@ -345,7 +348,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     }
 
     this.onMessage("move", (client, payload) => {
-      const move = sanitizeMove(payload);
+      const move = sanitizeMove(payload, this.scene.shell);
       const player = this.state.players.get(client.sessionId);
       const referee = this.referees.get(client.sessionId);
       if (!move || !player || !referee) return;
@@ -533,7 +536,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     auth?: UserRecord | true,
   ) {
     // The server decides where people appear; the client reads it from its own player
-    const spawn = randomSpawn();
+    const spawn = randomSpawn(Math.random, this.scene.spawn.area);
     const player = new Player();
     // With sign-in, the name is the one of the profile, unless the company lets people choose
     player.name = nameForPlayer({
@@ -554,7 +557,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     }
     player.x = spawn.x;
     player.z = spawn.z;
-    player.yaw = SPAWN.yaw;
+    player.yaw = this.scene.spawn.yaw;
     player.zone = "";
     player.status = DEFAULT_STATUS;
     player.seat = "";
@@ -577,11 +580,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       id: this.floorId,
       name: this.floorName,
     } satisfies FloorMessage);
-    client.send("layout", {
-      version: this.layoutVersion,
-      furniture: this.scene.furniture,
-      models: this.scene.models,
-    } satisfies LayoutMessage);
+    client.send("layout", layoutMessageOf(this.loaded));
 
     if (auth && auth !== true)
       client.send("moderator", {
@@ -589,6 +588,8 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       } satisfies ModeratorMessage);
 
     this.zones.set(client.sessionId, null);
+    // Whatever is already drawn on the boards of the open floor
+    this.boards.enteredZone(client.sessionId, null);
     const switcher = new ZoneSwitcher(
       (zone) => void this.sendVoice(client, switcher, zone),
       VOICE_SWITCH_GAP_MS,
@@ -688,7 +689,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     if (seatId === undefined || !player || !referee) return;
     const seat = this.scene.interactables.find((entry) => entry.id === seatId);
     const spot = seat?.seat
-      ? standSpot(seat.seat, this.scene.colliders, OFFICE_FLOOR)
+      ? standSpot(seat.seat, this.scene.colliders, this.scene.floor)
       : { x: player.x, z: player.z };
     player.seat = "";
     player.x = spot.x;
@@ -735,6 +736,13 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   private saveLook(userId: string, look: Appearance) {
     void users.setAppearance(userId, look).catch((error) => {
       console.error("Could not save somebody's look:", error);
+    });
+  }
+
+  /** The server is shutting down to restart: tell everybody with a code of its own, and the game joins again by itself. */
+  onBeforeShutdown() {
+    this.disconnect(SERVER_RESTARTING_CODE).catch((error) => {
+      console.error("Could not close the room for the restart:", error);
     });
   }
 
@@ -810,6 +818,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     if (sessions.length === 0) return;
     void checkEntry(this.floorId, userId, {
       floors: floorDirectory,
+      groups: groupDirectory,
       rolesOf: (id) => users.rolesOf(id),
     }).then((entry) => {
       // Only a clear no sends anybody out: a database that cannot answer does not
@@ -817,6 +826,16 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       for (const client of sessions)
         client.leave(FLOOR_ACCESS_LOST_CODE, FLOOR_ACCESS_LOST_MESSAGE);
     });
+  }
+
+  /**
+   * The floor was archived: nobody may be here any more. Everybody is sent out,
+   * and the game takes them to the common floor.
+   */
+  floorArchived(): void {
+    void this.lock();
+    for (const client of [...this.clients])
+      client.leave(FLOOR_ARCHIVED_CODE, FLOOR_ARCHIVED_MESSAGE);
   }
 
   /** Disconnects every session of this person in the room. Returns how many there were. */
@@ -865,15 +884,15 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
    */
   private trackZone(client: Client, x: number, z: number) {
     const previous = this.zones.get(client.sessionId) ?? null;
-    const zone = zoneAt(x, z, previous);
+    const zone = zoneAt(x, z, previous, this.scene.zones);
     if (zone !== previous) {
       this.zones.set(client.sessionId, zone);
       const player = this.state.players.get(client.sessionId);
       if (player) player.zone = zone ?? "";
       this.refreshStatus(client.sessionId);
       client.send("zone", zone satisfies ZoneMessage);
-      // Walking in, they see what is already on the room's boards
-      if (zone) this.boards.enteredZone(client.sessionId, zone);
+      // Walking in, or back out into the open floor, they see what is already on the boards there
+      this.boards.enteredZone(client.sessionId, zone);
     }
     this.switchers.get(client.sessionId)?.update(zone);
   }

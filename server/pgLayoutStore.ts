@@ -13,6 +13,7 @@ interface Row {
   created_at: number | string | bigint;
   furniture?: StoredLayout["furniture"];
   models?: StoredLayout["models"];
+  shell?: StoredLayout["shell"] | null;
   good?: boolean;
 }
 
@@ -32,6 +33,8 @@ const storedOf = (row: Row): StoredLayout => ({
   ...baseOf(row),
   furniture: row.furniture ?? [],
   models: row.models ?? [],
+  // Absent, not null, for a layout that never had one: it means the default shell
+  ...(row.shell ? { shell: row.shell } : {}),
 });
 
 /** Postgres error code for breaking a UNIQUE rule: somebody published at the same moment. */
@@ -50,7 +53,7 @@ export class PgLayoutStore implements LayoutStore {
 
   async current(floor: string) {
     const { rows } = await this.db.query<Row>(
-      `SELECT floor, version, author, created_at, furniture, models
+      `SELECT floor, version, author, created_at, furniture, models, shell
        FROM floor_layouts WHERE floor = $1 ORDER BY version DESC LIMIT 1`,
       [floor],
     );
@@ -59,7 +62,7 @@ export class PgLayoutStore implements LayoutStore {
 
   async get(floor: string, version: number) {
     const { rows } = await this.db.query<Row>(
-      `SELECT floor, version, author, created_at, furniture, models
+      `SELECT floor, version, author, created_at, furniture, models, shell
        FROM floor_layouts WHERE floor = $1 AND version = $2`,
       [floor, version],
     );
@@ -95,7 +98,7 @@ export class PgLayoutStore implements LayoutStore {
 
   async lastGood(floor: string) {
     const { rows } = await this.db.query<Row>(
-      `SELECT l.floor, l.version, l.author, l.created_at, l.furniture, l.models
+      `SELECT l.floor, l.version, l.author, l.created_at, l.furniture, l.models, l.shell
        FROM floor_layouts l
        JOIN floor_layout_marks m ON m.floor = l.floor AND m.version = l.version
        WHERE l.floor = $1 ORDER BY l.version DESC LIMIT 1`,
@@ -110,16 +113,17 @@ export class PgLayoutStore implements LayoutStore {
         // The next number is worked out by the same statement that stores it;
         // if somebody else took it a moment earlier the UNIQUE rule says so
         const { rows } = await this.db.query<Row>(
-          `INSERT INTO floor_layouts (floor, version, author, created_at, furniture, models)
-           SELECT $1, COALESCE(MAX(version), 0) + 1, $2, $3, $4::jsonb, $5::jsonb
+          `INSERT INTO floor_layouts (floor, version, author, created_at, furniture, models, shell)
+           SELECT $1, COALESCE(MAX(version), 0) + 1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb
            FROM floor_layouts WHERE floor = $1
-           RETURNING floor, version, author, created_at, furniture, models`,
+           RETURNING floor, version, author, created_at, furniture, models, shell`,
           [
             floor,
             author,
             this.now(),
             JSON.stringify(layout.furniture),
             JSON.stringify(layout.models),
+            layout.shell ? JSON.stringify(layout.shell) : null,
           ],
         );
         return storedOf(rows[0]);

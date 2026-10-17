@@ -1,6 +1,11 @@
 import { sanitizeFurniture } from "../shared/furniture.ts";
 import { findProblems } from "../shared/officeProblems.ts";
 import { sanitizeModels } from "../shared/props.ts";
+import {
+  findShellProblems,
+  sanitizeShell,
+  type Shell,
+} from "../shared/shell.ts";
 import { canEditFloor, identityOf } from "./actor.ts";
 import { auditActor, type AuditRecorder } from "./audit.ts";
 import {
@@ -80,9 +85,11 @@ function problemsRefusal(
   layout: Layout,
   body: Record<string, unknown> | null,
 ): { refusal: AdminReply | null; problems: string[] } {
-  const problems = findProblems(layout.furniture, layout.models).map(
-    (p) => p.message,
-  );
+  const problems = findProblems(
+    layout.furniture,
+    layout.models,
+    layout.shell,
+  ).map((p) => p.message);
   if (problems.length === 0 || body?.acceptProblems === true)
     return { refusal: null, problems };
   return {
@@ -96,6 +103,65 @@ function problemsRefusal(
       },
     },
   };
+}
+
+const LIST_KEYS = [
+  "walls",
+  "glass",
+  "floors",
+  "zones",
+  "areas",
+  "boards",
+  "screens",
+] as const;
+
+/** How many entries of the lists of a shell the sanitizer left out. */
+function shellEntriesLost(raw: unknown, clean: Shell): number {
+  const sent = raw as Record<string, unknown>;
+  return LIST_KEYS.reduce((lost, key) => {
+    const before = Array.isArray(sent[key]) ? sent[key].length : 0;
+    return lost + Math.max(0, before - clean[key].length);
+  }, 0);
+}
+
+/**
+ * The shell a publish carries: what the body says (checked: a shell that is
+ * not one, that lost entries to the sanitizer or that has problems is refused,
+ * whatever the author accepts, since a broken shell breaks the floor for
+ * everybody), nothing for `null` (the default shell), and, when the body does
+ * not say, the one the floor has now, so an editor that knows nothing of
+ * shells does not undo it.
+ */
+async function shellOf(
+  deps: LayoutAdminDeps,
+  floor: string,
+  body: Record<string, unknown> | null,
+): Promise<{ shell: Shell | undefined } | { refusal: AdminReply }> {
+  const sent = body?.shell;
+  if (sent === undefined)
+    return { shell: (await deps.layouts.current(floor))?.shell };
+  if (sent === null) return { shell: undefined };
+  const shell = sanitizeShell(sent);
+  if (!shell) return { refusal: bad("That is not a valid shell.") };
+  const lost = shellEntriesLost(sent, shell);
+  if (lost > 0)
+    return {
+      refusal: bad(
+        `${lost} ${lost === 1 ? "entry" : "entries"} of the shell ${lost === 1 ? "is" : "are"} not valid.`,
+      ),
+    };
+  const problems = findShellProblems(shell).map((p) => p.message);
+  if (problems.length > 0)
+    return {
+      refusal: {
+        status: 400,
+        body: {
+          error: `This shell has ${problems.length} problem${problems.length === 1 ? "" : "s"}.`,
+          shellProblems: problems,
+        },
+      },
+    };
+  return { shell };
 }
 
 /** Stores a layout as the next version and tells the rooms; the reply says which version it is. */
@@ -150,11 +216,18 @@ async function route(
       return bad("Expected a furniture list and a models list.");
     const refused = await lockProblem(deps, floor, author);
     if (refused) return refused;
+    const chosen = await shellOf(deps, floor, body);
+    if ("refusal" in chosen) return chosen.refusal;
     const furniture = sanitizeFurniture(body.furniture);
     const models = sanitizeModels(body.models);
-    const { refusal, problems } = problemsRefusal({ furniture, models }, body);
+    const layout: Layout = {
+      furniture,
+      models,
+      ...(chosen.shell ? { shell: chosen.shell } : {}),
+    };
+    const { refusal, problems } = problemsRefusal(layout, body);
     if (refusal) return refusal;
-    const stored = await store(deps, floor, { furniture, models }, author);
+    const stored = await store(deps, floor, layout, author);
     const dropped =
       body.furniture.length -
       furniture.length +
@@ -238,7 +311,11 @@ async function route(
   const stored = await store(
     deps,
     floor,
-    { furniture: earlier.furniture, models: earlier.models },
+    {
+      furniture: earlier.furniture,
+      models: earlier.models,
+      ...(earlier.shell ? { shell: earlier.shell } : {}),
+    },
     author,
   );
   await deps.audit?.({

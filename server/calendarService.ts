@@ -20,6 +20,24 @@ const PAST_MS = 2 * DAY_MS;
 const AHEAD_MS = 7 * DAY_MS;
 const TEST_AHEAD_MS = 30 * DAY_MS;
 
+/** A room as the handlers name it: its id, what it is called, and the floor it is on (the rooms of the main office are not told apart from older ones that had no floor). */
+export interface RoomInfo {
+  id: string;
+  label: string;
+  floor?: string;
+  floorName?: string;
+}
+
+/** The rooms, as a list or as a function that gives it (asked for each time). */
+export type RoomSource =
+  ReadonlyArray<RoomInfo> | (() => Promise<ReadonlyArray<RoomInfo>>);
+
+export async function resolveRooms(
+  source: RoomSource,
+): Promise<ReadonlyArray<RoomInfo>> {
+  return typeof source === "function" ? await source() : source;
+}
+
 export type TestResult =
   { ok: true; upcoming: number } | { ok: false; error: string };
 
@@ -53,8 +71,11 @@ export interface CalendarServiceDeps {
   store: SettingsStore;
   fetchFeed: (url: string) => Promise<FeedResult>;
   now?: () => number;
-  /** The rooms that can have a calendar. */
-  rooms: readonly string[];
+  /**
+   * The rooms that can have a calendar: a list, or a function that gives it
+   * (asked for each time: floors are made and changed while the server runs).
+   */
+  rooms: readonly string[] | (() => Promise<readonly string[]>);
 }
 
 interface Cached {
@@ -73,10 +94,11 @@ export function createCalendarService({
 }: CalendarServiceDeps): CalendarService {
   const cache = new Map<string, Cached>();
   const inFlight = new Map<string, Promise<Cached>>();
-  const known = new Set(rooms);
+  const roomsNow = async () =>
+    typeof rooms === "function" ? await rooms() : rooms;
 
   const feedOf = async (room: string) => {
-    if (!known.has(room)) return null;
+    if (!(await roomsNow()).includes(room)) return null;
     return (await store.get(`${FEED_KEY_PREFIX}${room}`)) || null;
   };
 
@@ -132,6 +154,8 @@ export function createCalendarService({
   return {
     feedOf,
     async setFeed(room, url) {
+      // A feed only for a room that exists, so no setting is made for a name nobody has
+      if (!(await roomsNow()).includes(room)) return;
       await store.set(`${FEED_KEY_PREFIX}${room}`, url);
       cache.delete(room);
     },
@@ -141,7 +165,7 @@ export function createCalendarService({
     },
     async configured() {
       const entries = await Promise.all(
-        rooms.map(
+        (await roomsNow()).map(
           async (room) => [room, (await feedOf(room)) !== null] as const,
         ),
       );

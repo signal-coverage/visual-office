@@ -5,6 +5,8 @@
  * server itself with the signed-in person's token.
  */
 export interface EditorBackend {
+  /** The room being edited: missing for the main office, which the default layout file belongs to. */
+  floor?: string;
   /** Where the lock calls go: `${floorBase}/lock`, `/heartbeat` and `/unlock`. */
   floorBase: string;
   /** Reading the stored layout (GET). */
@@ -26,12 +28,14 @@ export function httpUrlOf(serverUrl: string): string {
   return serverUrl.replace(/^ws(s?):/, "http$1:").replace(/\/+$/, "");
 }
 
-/** On a developer's machine: the development server forwards to the game server and writes files. */
-export function devBackend(): EditorBackend {
+/** On a developer's machine: the development server forwards to the game server and writes files. The main office, unless a room is named. */
+export function devBackend(floor?: string): EditorBackend {
+  const floorBase = floor ? `/__editor/floors/${floor}` : "/__editor/floor";
   return {
-    floorBase: "/__editor/floor",
-    layoutUrl: "/__editor/floor/layout",
-    publishUrl: "/__editor/floor/publish",
+    ...(floor ? { floor } : {}),
+    floorBase,
+    layoutUrl: `${floorBase}/layout`,
+    publishUrl: `${floorBase}/publish`,
     request: (url, init) => fetch(url, init),
     listModels: async () => {
       const response = await fetch("/__editor/models");
@@ -78,6 +82,7 @@ export function gameBackend({
   };
 
   return {
+    floor,
     floorBase,
     layoutUrl: `${floorBase}/layout`,
     publishUrl: `${floorBase}/layout`,

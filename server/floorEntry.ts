@@ -1,6 +1,8 @@
 import {
   COMMON_FLOOR_ID,
   COMMON_FLOOR_NAME,
+  FLOOR_ARCHIVED_CODE,
+  FLOOR_ARCHIVED_MESSAGE,
   FLOOR_FORBIDDEN_CODE,
   FLOOR_FORBIDDEN_MESSAGE,
   FLOOR_UNAVAILABLE_CODE,
@@ -9,8 +11,10 @@ import {
   FLOOR_UNKNOWN_MESSAGE,
   sanitizeFloorId,
 } from "../shared/floors.ts";
-import { mayEnterFloor } from "./floorAccess.ts";
+import { groupsOpen, mayEnterFloor } from "./floorAccess.ts";
+import { isArchived } from "./floorArchive.ts";
 import type { FloorRecord, FloorStore } from "./floorStore.ts";
+import type { GroupStore } from "./groupStore.ts";
 import type { Roles } from "./userStore.ts";
 
 /**
@@ -34,6 +38,8 @@ export type Entry =
 
 export interface EntryDeps {
   floors: Pick<FloorStore, "get" | "floorsOf">;
+  /** The role groups: without them nobody has a room through a group. */
+  groups?: Pick<GroupStore, "groupsOf">;
   rolesOf: (userId: string) => Promise<Roles>;
 }
 
@@ -45,7 +51,8 @@ const refused = (code: number, message: string): Entry => ({
 
 /**
  * Whether somebody may be in a floor, decided from what the server has now:
- * the floor must exist, and (see `mayEnterFloor`) the person must be allowed.
+ * the floor must exist and not be archived, and (see `mayEnterFloor`) the
+ * person must be allowed.
  * `userId` is null when sign-in is off. When the database cannot say, the
  * answer is no, except for the common floor: that must never lock everybody out.
  */
@@ -69,12 +76,18 @@ export async function checkEntry(
     };
   }
   if (!floor) return refused(FLOOR_UNKNOWN_CODE, FLOOR_UNKNOWN_MESSAGE);
+  if (isArchived(floor))
+    return refused(FLOOR_ARCHIVED_CODE, FLOOR_ARCHIVED_MESSAGE);
   if (userId === null || floor.common) return { ok: true, floor };
 
   try {
     const roles = await deps.rolesOf(userId);
     const granted = (await deps.floors.floorsOf(userId)).includes(floor.id);
-    return mayEnterFloor(roles, floor, granted)
+    const viaGroup = groupsOpen(
+      (await deps.groups?.groupsOf(userId)) ?? [],
+      floor.id,
+    );
+    return mayEnterFloor(roles, floor, granted, viaGroup)
       ? { ok: true, floor }
       : refused(FLOOR_FORBIDDEN_CODE, FLOOR_FORBIDDEN_MESSAGE);
   } catch (error) {
@@ -91,5 +104,7 @@ export function statusBeforeTheRoom(code: number): number {
   if (code === FLOOR_UNKNOWN_CODE) return 404;
   if (code === FLOOR_UNAVAILABLE_CODE) return 503;
   if (code === FLOOR_FORBIDDEN_CODE) return 403;
+  // Gone: it was there and has been put away
+  if (code === FLOOR_ARCHIVED_CODE) return 410;
   return code >= 200 && code <= 599 ? code : 500;
 }

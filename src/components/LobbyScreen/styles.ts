@@ -1,11 +1,11 @@
 export const backdrop =
   "fixed inset-0 grid place-items-center overflow-y-auto bg-background p-4 text-foreground";
 export const card =
-  "relative box-border grid w-[min(920px,100%)] gap-8 rounded-[2rem] border border-border bg-surface p-6 shadow-xl sm:p-8 md:grid-cols-[1fr_1.25fr]";
+  "relative box-border grid w-[min(920px,100%)] gap-8 rounded-[2rem] border border-border bg-surface p-6 shadow-xl sm:p-8 grid-cols-[minmax(0,1fr)] md:grid-cols-[1fr_1.25fr]";
 /** The character sits in a muted panel on the left; stacked above the form when there is no room. */
 export const previewColumn =
-  "flex flex-col items-center justify-center gap-4 rounded-3xl bg-surface-secondary p-6";
-export const fieldsColumn = "flex flex-col gap-5";
+  "flex min-w-0 flex-col items-center justify-center gap-4 rounded-3xl bg-surface-secondary p-6";
+export const fieldsColumn = "flex min-w-0 flex-col gap-5";
 export const eyebrow =
   "m-0 text-sm font-semibold uppercase tracking-widest text-accent";
 export const title = "m-0 text-4xl font-bold";

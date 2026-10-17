@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   FLOOR_ACCESS_LOST_CODE,
+  FLOOR_ARCHIVED_CODE,
   FLOOR_UPDATED_CODE,
   type FloorInfo,
 } from "../../shared/floors.ts";
+import {
+  SERVER_RESTARTING_CODE,
+  SERVER_RESTARTING_MESSAGE,
+} from "../../shared/restart.ts";
 import {
   afterDisconnect,
   canTravel,
@@ -92,6 +97,31 @@ describe("afterDisconnect", () => {
     expect(next.kind === "rejoin" && next.notice).toMatch(
       /no longer have access/i,
     );
+  });
+
+  it("takes somebody whose room was archived to the common floor, and says why", () => {
+    const next = afterDisconnect({ ...base, code: FLOOR_ARCHIVED_CODE });
+    expect(next).toMatchObject({ kind: "rejoin", floor: "office" });
+    expect(next.kind === "rejoin" && next.notice).toMatch(/archived/i);
+  });
+
+  it("joins the same room again, after a wait, when the server is restarting", () => {
+    const next = afterDisconnect({
+      ...base,
+      code: SERVER_RESTARTING_CODE,
+      random: () => 0,
+    });
+    expect(next).toEqual({
+      kind: "rejoin",
+      floor: "lab",
+      notice: SERVER_RESTARTING_MESSAGE,
+      delayMs: 2000,
+    });
+  });
+
+  it("does not wait for any other rejoin", () => {
+    const next = afterDisconnect({ ...base, code: FLOOR_UPDATED_CODE });
+    expect(next.kind === "rejoin" && next.delayMs).toBeUndefined();
   });
 
   it("goes back to the first screen with the reason for anything else", () => {

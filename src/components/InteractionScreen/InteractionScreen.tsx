@@ -11,6 +11,7 @@ export function InteractionScreen({
   getToken,
   canEdit,
   onClose,
+  touch,
 }: InteractionScreenProps) {
   const content =
     panel.kind === "computer" ? (
@@ -26,6 +27,7 @@ export function InteractionScreen({
       content={content}
       interactive={panelUsesMouse(panel.kind)}
       onClose={onClose}
+      touch={touch}
     />
   );
 }

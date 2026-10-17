@@ -107,3 +107,20 @@ describe("buildRoster, edge cases", () => {
     expect(roster.entries.map((e) => e.name)).toEqual(["Adam", "bob", "zoe"]);
   });
 });
+
+describe("buildRoster on a floor with other zones", () => {
+  const zones = [
+    {
+      id: "a",
+      label: "Studio A",
+      area: { minX: 0, maxX: 4, minZ: 0, maxZ: 4 },
+    },
+  ];
+  const players = [player("x", "Xena"), player("y", "Yuri", "a")];
+
+  it("names the zones from the list it is given", () => {
+    const roster = buildRoster(players, "x", zones);
+    expect(roster.entries.find((e) => e.id === "y")?.place).toBe("Studio A");
+    expect(buildRoster(players, "y", zones).title).toBe("Studio A");
+  });
+});

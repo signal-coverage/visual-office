@@ -8,15 +8,25 @@ import {
 } from "../../shared/furniture.ts";
 import type { Target } from "../../shared/officeProblems.ts";
 import { footprintCollider, type PropPlacement } from "../../shared/props.ts";
+import type { Shell, ShellRef } from "../../shared/shell.ts";
 
-/** The things being edited. Lists are never changed in place, so a snapshot is just a pair of references. */
-interface Snapshot {
+/**
+ * The things being edited. Lists are never changed in place, so a snapshot is
+ * just a few references. The shell is undefined while the floor has the
+ * default one.
+ */
+export interface Snapshot {
   furniture: Furniture[];
   models: PropPlacement[];
+  shell: Shell | undefined;
 }
 
 export interface EditorState extends Snapshot {
   selected: Target | null;
+  /** The part of the shell that is selected, in the structure mode. */
+  structure: ShellRef | null;
+  /** Whether the structure was changed in this session: only then does a publish say what the shell is. */
+  shellTouched: boolean;
   past: Snapshot[];
   future: Snapshot[];
   /** Where the lists were when last saved, to tell whether there is anything unsaved. */
@@ -28,41 +38,51 @@ export const HISTORY_LIMIT = 100;
 /** How far a copy is put from the original, so it can be seen. */
 const DUPLICATE_OFFSET = 0.5;
 
-/** Rounds to the grid, without the crumbs floating point leaves (0.30000000000000004). */
-export function snap(value: number, step: number): number {
-  const rounded = step > 0 ? Math.round(value / step) * step : value;
-  return step > 0 ? Math.round(rounded * 1e6) / 1e6 : rounded;
-}
+import { snap } from "./snap";
+
+export { snap };
 
 const isDirty = (state: Snapshot, saved: Snapshot) =>
-  state.furniture !== saved.furniture || state.models !== saved.models;
+  state.furniture !== saved.furniture ||
+  state.models !== saved.models ||
+  state.shell !== saved.shell;
+
+const snapshotOf = (state: Snapshot): Snapshot => ({
+  furniture: state.furniture,
+  models: state.models,
+  shell: state.shell,
+});
 
 /** The state with these lists and selection, and `dirty` worked out again. */
-function withLists(
+export function withLists(
   state: EditorState,
-  changes: Partial<Snapshot> & { selected?: Target | null },
+  changes: Partial<Snapshot> & {
+    selected?: Target | null;
+    structure?: ShellRef | null;
+    shellTouched?: boolean;
+  },
 ): EditorState {
   const next = { ...state, ...changes };
   return { ...next, dirty: isDirty(next, next.saved) };
 }
 
 /** Remembers where things were, so the change that follows can be undone. */
-function remember(state: EditorState): EditorState {
-  const past = [
-    ...state.past,
-    { furniture: state.furniture, models: state.models },
-  ].slice(-HISTORY_LIMIT);
+export function remember(state: EditorState): EditorState {
+  const past = [...state.past, snapshotOf(state)].slice(-HISTORY_LIMIT);
   return { ...state, past, future: [] };
 }
 
 export function createEditor(
   furniture: Furniture[],
   models: PropPlacement[],
+  shell?: Shell,
 ): EditorState {
-  const snapshot = { furniture, models };
+  const snapshot: Snapshot = { furniture, models, shell };
   return {
     ...snapshot,
     selected: null,
+    structure: null,
+    shellTouched: false,
     past: [],
     future: [],
     saved: snapshot,
@@ -77,7 +97,8 @@ export function select(state: EditorState, target: Target | null): EditorState {
       target !== null &&
       state.selected.list === target.list &&
       state.selected.index === target.index);
-  return same ? state : { ...state, selected: target };
+  if (same && state.structure === null) return state;
+  return { ...state, selected: target, structure: null };
 }
 
 export function addFurniture(
@@ -268,12 +289,9 @@ export function undo(state: EditorState): EditorState {
     {
       ...state,
       past: state.past.slice(0, -1),
-      future: [
-        { furniture: state.furniture, models: state.models },
-        ...state.future,
-      ],
+      future: [snapshotOf(state), ...state.future],
     },
-    { ...previous, selected: null },
+    { ...previous, selected: null, structure: null },
   );
 }
 
@@ -283,20 +301,16 @@ export function redo(state: EditorState): EditorState {
   return withLists(
     {
       ...state,
-      past: [
-        ...state.past,
-        { furniture: state.furniture, models: state.models },
-      ],
+      past: [...state.past, snapshotOf(state)],
       future: rest,
     },
-    { ...next, selected: null },
+    { ...next, selected: null, structure: null },
   );
 }
 
 /** Records that what is on screen is what is in the file now. */
 export function markSaved(state: EditorState): EditorState {
-  const saved = { furniture: state.furniture, models: state.models };
-  return { ...state, saved, dirty: false };
+  return { ...state, saved: snapshotOf(state), dirty: false };
 }
 
 const contains = (box: Box, x: number, z: number) =>

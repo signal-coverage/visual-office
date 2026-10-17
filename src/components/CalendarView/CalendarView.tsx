@@ -8,7 +8,7 @@ import {
 } from "../../calendar/calendar";
 import { POLL_MS } from "../../calendar/consts";
 import { viewerDay } from "../../calendar/format";
-import { eventRange, joinHint } from "../../calendar/schedule";
+import { eventRange, joinHint, roomTitle } from "../../calendar/schedule";
 import { currentServerUrl } from "../../game/serverAddress";
 import {
   CLOSE_LABEL,
@@ -77,7 +77,7 @@ export function CalendarView({ getToken, onClose }: CalendarViewProps) {
               <ul className={styles.rooms}>
                 {rooms.map((room) => (
                   <li key={room.room} className={styles.room}>
-                    <h3 className={styles.roomName}>{room.label}</h3>
+                    <h3 className={styles.roomName}>{roomTitle(room)}</h3>
                     <p className={styles.hint(room.current !== null)}>
                       {joinHint(room, now, room.label)}
                     </p>

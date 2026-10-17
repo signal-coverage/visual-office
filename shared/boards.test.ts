@@ -5,6 +5,7 @@ import {
   BOARD_REACH,
   BOARDS,
   boardById,
+  boardsOf,
   canReachBoard,
   type Board,
 } from "./boards.ts";
@@ -16,7 +17,7 @@ const { center, width, height } = board;
 describe("the boards", () => {
   it("each belong to a real zone, and sit inside it", () => {
     for (const b of BOARDS) {
-      const zone = zoneById(b.zone);
+      const zone = zoneById(b.zone ?? "");
       expect(zone).toBeDefined();
       const { area } = zone!;
       expect(b.center.x).toBeGreaterThan(area.minX);
@@ -32,7 +33,7 @@ describe("the boards", () => {
         x: b.center.x + b.normal.x,
         z: b.center.z + b.normal.z,
       };
-      const area = zoneById(b.zone)!.area;
+      const area = zoneById(b.zone ?? "")!.area;
       expect(inFront.x).toBeGreaterThan(area.minX);
       expect(inFront.x).toBeLessThan(area.maxX);
     }
@@ -204,5 +205,69 @@ describe("a made-up board", () => {
     // Looking at -z from +z: this board's right is -x, so x = 0.5 is to its left
     expect(hit.u).toBeCloseTo(0.5 - 0.5 / 2);
     expect(hit.distance).toBeCloseTo(2);
+  });
+});
+
+describe("boards of another shell", () => {
+  const sides = {
+    east: { normal: { x: 1, y: 0, z: 0 }, right: { x: 0, y: 0, z: -1 } },
+    west: { normal: { x: -1, y: 0, z: 0 }, right: { x: 0, y: 0, z: 1 } },
+    south: { normal: { x: 0, y: 0, z: 1 }, right: { x: 1, y: 0, z: 0 } },
+    north: { normal: { x: 0, y: 0, z: -1 }, right: { x: -1, y: 0, z: 0 } },
+  } as const;
+
+  it.each(["east", "west", "south", "north"] as const)(
+    "turns the board that faces %s to look out of its wall, with its right hand to the right of whoever looks at it",
+    (facing) => {
+      const [board] = boardsOf({
+        boards: [
+          {
+            id: "b",
+            zone: "z",
+            facing,
+            face: 5,
+            along: 2,
+            y: 1.5,
+            width: 2,
+            height: 1,
+          },
+        ],
+      });
+      expect(board.normal).toEqual(sides[facing].normal);
+      expect(board.right).toEqual(sides[facing].right);
+      // Somebody who looks at it, from in front, aims at its middle
+      const eye = {
+        x: board.center.x + board.normal.x * 2,
+        y: 1.5,
+        z: board.center.z + board.normal.z * 2,
+      };
+      const hit = aimAtBoard(board, eye, {
+        x: -board.normal.x,
+        y: 0,
+        z: -board.normal.z,
+      })!;
+      expect(hit.u).toBeCloseTo(0.5);
+      expect(hit.v).toBeCloseTo(0.5);
+      expect(canReachBoard(board, eye.x, eye.z)).toBe(true);
+    },
+  );
+
+  it("looks a board up among the boards it is given", () => {
+    const boards = boardsOf({
+      boards: [
+        {
+          id: "mine",
+          zone: "z",
+          facing: "east",
+          face: 0,
+          along: 0,
+          y: 1.5,
+          width: 2,
+          height: 1,
+        },
+      ],
+    });
+    expect(boardById("mine", boards)?.zone).toBe("z");
+    expect(boardById("meeting", boards)).toBeUndefined();
   });
 });

@@ -6,8 +6,11 @@ import {
   type AdminRequest,
   type KnownFloors,
 } from "./floorAdmin.ts";
+import { effectiveAccess } from "../shared/groups.ts";
 import { mayEnterFloor } from "./floorAccess.ts";
+import { isArchived } from "./floorArchive.ts";
 import type { FloorStore } from "./floorStore.ts";
+import type { GroupStore } from "./groupStore.ts";
 import type { UserStore } from "./userStore.ts";
 
 const MAX_USER_ID_LENGTH = 128;
@@ -22,6 +25,8 @@ export interface PeopleAdminDeps {
   audit?: AuditRecorder;
   /** The floors with their names and who was given an entry: without it the list says nothing of that. */
   floors?: Pick<FloorStore, "list" | "allGrants">;
+  /** The role groups: without them the list says nothing of groups and counts none. */
+  groups?: Pick<GroupStore, "list">;
   /** Somebody stopped being head of a floor: the people inside may have to leave. */
   onAccessChanged?: (floor: string, userId: string) => void;
   /** Who is banned now, to show next to each person. Without it the list says nothing of bans. */
@@ -57,14 +62,14 @@ async function route(
           ]),
         )
       : null;
+    // Archived rooms are not offered: nobody can enter them, whoever they are
     const floorInfo = deps.floors
-      ? (await deps.floors.list()).map(({ id, name, common }) => ({
-          id,
-          name,
-          common,
-        }))
+      ? (await deps.floors.list())
+          .filter((floor) => !isArchived(floor))
+          .map(({ id, name, common }) => ({ id, name, common }))
       : null;
     const grants = deps.floors ? await deps.floors.allGrants() : [];
+    const allGroups = deps.groups ? await deps.groups.list() : null;
     return {
       status: 200,
       body: {
@@ -74,6 +79,10 @@ async function route(
           const access = grants
             .filter((grant) => grant.userId === person.id)
             .map((grant) => grant.floor);
+          const groups = (allGroups ?? []).filter((group) =>
+            group.members.includes(person.id),
+          );
+          const groupFloors = groups.flatMap((group) => group.floors);
           return {
             id: person.id,
             name: person.name,
@@ -89,9 +98,23 @@ async function route(
                         { admin: person.isAdmin, headOf: person.headOf },
                         floor,
                         access.includes(floor.id),
+                        groupFloors.includes(floor.id),
                       ),
                     )
                     .map((floor) => floor.id),
+                }
+              : {}),
+            ...(allGroups
+              ? {
+                  groups: groups.map(({ id, name }) => ({ id, name })),
+                  ...(floorInfo
+                    ? {
+                        effectiveAccess: effectiveAccess(access, groups).filter(
+                          (entry) =>
+                            floorInfo.some((floor) => floor.id === entry.floor),
+                        ),
+                      }
+                    : {}),
                 }
               : {}),
             ...(banned ? { bannedUntil: banned.get(person.id) ?? null } : {}),

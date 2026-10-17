@@ -15,6 +15,10 @@ export interface Person {
   headOf: string[];
   /** The rooms an admin gave them an entry for; absent when the server does not say. */
   access?: string[];
+  /** The groups they are in; absent when the server does not say. */
+  groups?: Array<{ id: string; name: string }>;
+  /** Where each room they have an entry for comes from ("direct", "group:<name>"); absent when the server does not say. */
+  effectiveAccess?: Array<{ floor: string; sources: string[] }>;
   /** Until when they are banned (milliseconds since 1970), or null; absent when the server does not say. */
   bannedUntil?: number | null;
 }
@@ -38,6 +42,22 @@ export interface PeopleList {
 /** A call to the game server that carries who is asking. */
 type Request = (url: string, init?: RequestInit) => Promise<Response>;
 
+const isGroupRef = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  const group = value as Record<string, unknown>;
+  return typeof group.id === "string" && typeof group.name === "string";
+};
+
+const isAccessEntry = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.floor === "string" &&
+    Array.isArray(entry.sources) &&
+    entry.sources.every((source) => typeof source === "string")
+  );
+};
+
 const isPerson = (value: unknown): value is Person => {
   if (typeof value !== "object" || value === null) return false;
   const person = value as Record<string, unknown>;
@@ -51,6 +71,11 @@ const isPerson = (value: unknown): value is Person => {
     (person.access === undefined ||
       (Array.isArray(person.access) &&
         person.access.every((floor) => typeof floor === "string"))) &&
+    (person.groups === undefined ||
+      (Array.isArray(person.groups) && person.groups.every(isGroupRef))) &&
+    (person.effectiveAccess === undefined ||
+      (Array.isArray(person.effectiveAccess) &&
+        person.effectiveAccess.every(isAccessEntry))) &&
     (person.bannedUntil === undefined ||
       person.bannedUntil === null ||
       typeof person.bannedUntil === "number")
@@ -175,7 +200,33 @@ export function canEnterFloor(person: Person, floor: FloorLabel): boolean {
     person.isAdmin ||
     floor.common ||
     person.headOf.includes(floor.id) ||
-    (person.access ?? []).includes(floor.id)
+    (person.access ?? []).includes(floor.id) ||
+    groupsGiving(person, floor.id).length > 0
+  );
+}
+
+const GROUP_PREFIX = "group:";
+
+/** The names of the groups that give somebody a room. */
+export function groupsGiving(person: Person, floorId: string): string[] {
+  const sources =
+    person.effectiveAccess?.find((entry) => entry.floor === floorId)?.sources ??
+    [];
+  return sources
+    .filter((source) => source.startsWith(GROUP_PREFIX))
+    .map((source) => source.slice(GROUP_PREFIX.length));
+}
+
+/**
+ * Whether the checkbox of this room is not for changing: what already lets
+ * somebody in (see `entryIsFixed`), or a group that is their only way in. When
+ * they also have an entry of their own, that one can still be taken away.
+ */
+export function entryIsLocked(person: Person, floor: FloorLabel): boolean {
+  if (entryIsFixed(person, floor)) return true;
+  return (
+    groupsGiving(person, floor.id).length > 0 &&
+    !(person.access ?? []).includes(floor.id)
   );
 }
 
@@ -197,6 +248,31 @@ export function withAccess(
     return {
       ...person,
       access: (allowed ? [...others, floor] : others).sort(),
+      ...(person.effectiveAccess
+        ? {
+            effectiveAccess: withDirectSource(
+              person.effectiveAccess,
+              floor,
+              allowed,
+            ),
+          }
+        : {}),
     };
   });
+}
+
+/** The sources of somebody's rooms with their own entry for one of them given or taken away. */
+function withDirectSource(
+  entries: ReadonlyArray<{ floor: string; sources: string[] }>,
+  floor: string,
+  direct: boolean,
+): Array<{ floor: string; sources: string[] }> {
+  const others = entries.filter((entry) => entry.floor !== floor);
+  const groups = (
+    entries.find((entry) => entry.floor === floor)?.sources ?? []
+  ).filter((source) => source !== "direct");
+  const sources = direct ? ["direct", ...groups] : groups;
+  return (sources.length > 0 ? [...others, { floor, sources }] : others).sort(
+    (a, b) => a.floor.localeCompare(b.floor),
+  );
 }

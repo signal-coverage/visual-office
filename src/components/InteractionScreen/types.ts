@@ -10,4 +10,6 @@ export interface InteractionScreenProps {
   canEdit: boolean;
   /** Puts the panel away (and gives the mouse back to the game). */
   onClose: () => void;
+  /** Walked with fingers: the panel says what to tap instead of which keys to press. */
+  touch?: boolean;
 }

@@ -1,9 +1,5 @@
 import * as THREE from "three";
-import {
-  OFFICE_DEPTH,
-  OFFICE_HEIGHT,
-  OFFICE_WIDTH,
-} from "../../shared/constants.ts";
+import { OFFICE_HEIGHT } from "../../shared/constants.ts";
 import { COLORS, sceneFor, type FloorScene } from "../../shared/layout.ts";
 import { OFFICE_FURNITURE } from "../../shared/officeData.ts";
 import { makeFloorTexture } from "./floorTexture";
@@ -21,8 +17,9 @@ const DEFAULT_DRAWING = sceneFor({ furniture: OFFICE_FURNITURE, models: [] });
 export function buildOffice(
   {
     shell,
+    shellPieces,
     furniture,
-  }: Pick<FloorScene, "shell" | "furniture"> = DEFAULT_DRAWING,
+  }: Pick<FloorScene, "shell" | "shellPieces" | "furniture"> = DEFAULT_DRAWING,
   detail: DetailLevel = "high",
 ): THREE.Group {
   const group = new THREE.Group();
@@ -46,7 +43,7 @@ export function buildOffice(
 
   const plane = (y: number, facing: 1 | -1, color: number, emissive = 0) => {
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(OFFICE_WIDTH, OFFICE_DEPTH),
+      new THREE.PlaneGeometry(shell.width, shell.depth),
       material(color, emissive),
     );
     mesh.rotation.x = (-Math.PI / 2) * facing;
@@ -56,15 +53,18 @@ export function buildOffice(
   };
 
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(OFFICE_WIDTH, OFFICE_DEPTH),
-    new THREE.MeshStandardMaterial({ map: makeFloorTexture(), roughness: 0.8 }),
+    new THREE.PlaneGeometry(shell.width, shell.depth),
+    new THREE.MeshStandardMaterial({
+      map: makeFloorTexture(shell.width, shell.depth),
+      roughness: 0.8,
+    }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   group.add(floor);
-  plane(OFFICE_HEIGHT, -1, COLORS.ceiling, COLORS.ceilingGlow);
+  plane(shell.height ?? OFFICE_HEIGHT, -1, COLORS.ceiling, COLORS.ceilingGlow);
 
-  for (const piece of shell) {
+  for (const piece of shellPieces) {
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(...piece.size),
       material(piece.color, piece.emissive, piece.opacity),

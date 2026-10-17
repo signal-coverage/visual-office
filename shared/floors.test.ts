@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   COMMON_FLOOR_ID,
+  FLOOR_ARCHIVED_CODE,
+  FLOOR_ARCHIVED_MESSAGE,
+  FLOOR_ARCHIVED_NOTICE,
   MAX_FLOOR_ID_LENGTH,
   MAX_FLOOR_NAME_LENGTH,
+  messageForFloorCode,
   RESERVED_FLOOR_IDS,
   sanitizeFloorId,
   sanitizeFloorName,
@@ -97,5 +101,16 @@ describe("slugFromName", () => {
     expect(slug).not.toBeNull();
     expect(slug!.length).toBeLessThanOrEqual(MAX_FLOOR_ID_LENGTH);
     expect(slug!.endsWith("-")).toBe(false);
+  });
+});
+
+describe("archived rooms", () => {
+  it("have their own code and words, not taken for another refusal", () => {
+    expect(FLOOR_ARCHIVED_CODE).toBe(4011);
+    expect(messageForFloorCode(FLOOR_ARCHIVED_CODE)).toBe(
+      FLOOR_ARCHIVED_MESSAGE,
+    );
+    expect(FLOOR_ARCHIVED_MESSAGE).toMatch(/archived/i);
+    expect(FLOOR_ARCHIVED_NOTICE).toMatch(/archived.*main office/i);
   });
 });

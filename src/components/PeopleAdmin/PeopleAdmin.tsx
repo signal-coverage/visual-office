@@ -21,7 +21,9 @@ import { currentServerUrl } from "../../game/serverAddress";
 import {
   canEnterFloor,
   entryIsFixed,
+  entryIsLocked,
   fetchPeople,
+  groupsGiving,
   moderatePerson,
   setHead,
   withAccess,
@@ -41,6 +43,8 @@ import {
   enterColumn,
   enterLabel,
   headLabel,
+  viaGroupLabel,
+  viaGroups,
   ALWAYS_NOTE,
   EMPTY,
   INTRO,
@@ -246,6 +250,15 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
                         {person.email && (
                           <div className={styles.email}>{person.email}</div>
                         )}
+                        {person.groups && person.groups.length > 0 && (
+                          <div className={styles.groups}>
+                            {person.groups.map((group) => (
+                              <Chip key={group.id} size="sm">
+                                {group.name}
+                              </Chip>
+                            ))}
+                          </div>
+                        )}
                       </Table.Cell>
                       {list.floorInfo.map((floor) => (
                         <Table.Cell key={floor.id}>
@@ -267,9 +280,13 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
                       {list.floorInfo.map((floor) => (
                         <Table.Cell key={`enter-${floor.id}`}>
                           <Checkbox
-                            aria-label={enterLabel(person.name, floor.name)}
+                            aria-label={enterLabel(
+                              person.name,
+                              floor.name,
+                              groupsGiving(person, floor.id),
+                            )}
                             isSelected={canEnterFloor(person, floor)}
-                            isDisabled={entryIsFixed(person, floor)}
+                            isDisabled={entryIsLocked(person, floor)}
                             onChange={(allowed) =>
                               void toggleAccess(person.id, floor.id, allowed)
                             }
@@ -280,8 +297,21 @@ export function PeopleAdmin({ getToken, onClose }: PeopleAdminProps) {
                               </Checkbox.Control>
                             </Checkbox.Content>
                           </Checkbox>
-                          {entryIsFixed(person, floor) && (
+                          {entryIsFixed(person, floor) ? (
                             <span className={styles.always}>{ALWAYS_NOTE}</span>
+                          ) : (
+                            groupsGiving(person, floor.id).length > 0 && (
+                              <Chip
+                                size="sm"
+                                color="accent"
+                                className={styles.via}
+                                aria-label={viaGroupLabel(
+                                  groupsGiving(person, floor.id),
+                                )}
+                              >
+                                {viaGroups(groupsGiving(person, floor.id))}
+                              </Chip>
+                            )
                           )}
                         </Table.Cell>
                       ))}

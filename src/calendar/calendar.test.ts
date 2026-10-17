@@ -68,3 +68,25 @@ describe("withToken", () => {
     expect(seen).toEqual(["Bearer abc", null]);
   });
 });
+
+describe("fetchRooms, with floors", () => {
+  const onAnotherFloor = {
+    ...room,
+    room: "hr.meeting",
+    floor: "hr",
+    floorName: "People",
+  };
+
+  it("brings the floor of each room when the server says it", async () => {
+    const { request } = api({ body: { rooms: [room, onAnotherFloor] } });
+    const rooms = await fetchRooms(request, server, day);
+    expect(rooms?.[1]).toMatchObject({ floor: "hr", floorName: "People" });
+  });
+
+  it("refuses a room whose floor is not text", async () => {
+    const { request } = api({
+      body: { rooms: [{ ...room, floor: 5, floorName: "x" }] },
+    });
+    expect(await fetchRooms(request, server, day)).toBeNull();
+  });
+});

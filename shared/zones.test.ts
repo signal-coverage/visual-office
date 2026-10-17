@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { OFFICE_DEPTH, OFFICE_WIDTH, PLAYER_RADIUS } from "./constants.ts";
 import { moveWithCollisions } from "./collision.ts";
 import { OFFICE_COLLIDERS } from "./layout.ts";
-import { ZONES, ZONE_MARGIN, zoneAt, zoneById, zoneLabel } from "./zones.ts";
+import {
+  ZONES,
+  ZONE_MARGIN,
+  zoneAt,
+  zoneById,
+  zoneLabel,
+  zonesOf,
+} from "./zones.ts";
 
 const meeting = zoneById("meeting")!.area;
 
@@ -138,5 +145,60 @@ describe("zoneAt", () => {
     expect(zoneAt(westWall, -8, null)).toBe("meeting");
     expect(zoneAt(-14, northWall, null)).toBe("meeting");
     expect(zoneAt(-14, southWall, null)).toBe("meeting");
+  });
+});
+
+describe("zones of another shell", () => {
+  const zones = [
+    {
+      id: "a",
+      label: "Room A",
+      area: { minX: -10, maxX: -4, minZ: -6, maxZ: -2 },
+    },
+    {
+      id: "b",
+      label: "Room B",
+      area: { minX: 4, maxX: 10, minZ: -6, maxZ: -2 },
+    },
+  ];
+
+  it("finds the zone a point is in among the zones it is given", () => {
+    expect(zoneAt(-7, -4, null, zones)).toBe("a");
+    expect(zoneAt(7, -4, null, zones)).toBe("b");
+    expect(zoneAt(0, -4, null, zones)).toBeNull();
+    // The default meeting room is not there
+    expect(zoneAt(-10.5, -6, null, zones)).toBeNull();
+  });
+
+  it("keeps the hysteresis at the edge of any zone", () => {
+    expect(zoneAt(-3.8, -4, null, zones)).toBeNull();
+    expect(zoneAt(-3.8, -4, "a", zones)).toBe("a");
+  });
+
+  it("names a zone from the list, and shows an id it does not know as it is", () => {
+    expect(zoneLabel("b", zones)).toBe("Room B");
+    expect(zoneLabel("meeting", zones)).toBe("meeting");
+    expect(zoneById("a", zones)?.label).toBe("Room A");
+    expect(zoneById("meeting", zones)).toBeUndefined();
+  });
+
+  it("makes zones of a shell", () => {
+    expect(
+      zonesOf({
+        zones: [
+          {
+            id: "a",
+            label: "Room A",
+            rect: { minX: 0, maxX: 3, minZ: 0, maxZ: 3 },
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "a",
+        label: "Room A",
+        area: { minX: 0, maxX: 3, minZ: 0, maxZ: 3 },
+      },
+    ]);
   });
 });

@@ -3,9 +3,10 @@ import {
   peerWantsVideo,
   type VoiceCredentials,
 } from "../../shared/voice.ts";
+import { callErrorText } from "./callError";
 import { meterSteps, smoothLevel } from "./micMeter";
 import { MUTED_NOTICE } from "../../shared/moderation.ts";
-import { zoneHasScreen } from "../../shared/screens.ts";
+import { SCREENS } from "../../shared/screens.ts";
 import { ScreenShares } from "./screenShares";
 import { VoiceChat, type VoiceState } from "./VoiceChat";
 
@@ -87,6 +88,10 @@ export class CallController {
   private sharingMine = false;
   private picking = false;
   private view: ScreenView = { kind: "none" };
+  /** The rooms of this floor that have a screen on a wall: the main office's until the floor says otherwise. */
+  private screenZones: ReadonlySet<string> = new Set(
+    SCREENS.map((screen) => screen.zone),
+  );
 
   constructor(
     events: CallEvents,
@@ -190,9 +195,14 @@ export class CallController {
    * is not is told what to turn on, before they wonder why the screen is empty.
    */
   enteredZone(zone: string | null) {
-    if (!zone || !zoneHasScreen(zone)) return;
+    if (!zone || !this.screenZones.has(zone)) return;
     if (this.state === "idle" || this.state === "error")
       this.events.onNotice(NOTICES.joinToSee);
+  }
+
+  /** Which rooms of the floor have a screen on a wall: they are known once the floor says what it is made of. */
+  setScreenZones(zones: Iterable<string>) {
+    this.screenZones = new Set(zones);
   }
 
   /** The game connection is gone, and the call with it. */
@@ -307,9 +317,14 @@ export class CallController {
       await chat.join(credentials, { mic });
     } catch (error) {
       console.warn("Could not join the call", error);
-      if (this.chat !== chat) return;
-      this.leave();
-      this.setState("error");
+      if (this.chat === chat) {
+        this.leave();
+        this.setState("error");
+        this.events.onNotice(callErrorText(error));
+        // The library may have reported the drop before rejecting: the state is already the error, and only the reason is missing
+      } else if (this.chat === null && this.state === "error") {
+        this.events.onNotice(callErrorText(error));
+      }
       return;
     }
     if (this.chat !== chat) return; // left, or a newer attempt replaced this one

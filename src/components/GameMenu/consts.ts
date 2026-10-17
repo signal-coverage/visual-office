@@ -9,10 +9,13 @@ export const ITEMS = {
   status: "Your status",
   emotes: "Emotes",
   knock: "Knock (K)",
+  knockTouch: "Knock",
   map: "Map of rooms (R)",
+  mapTouch: "Map of rooms",
   rooms: "Rooms",
   calendar: "Room calendars",
   controls: "Controls",
+  lite: "Lite view (no 3D)",
   options: "Options",
   moderation: "Moderation",
   leave: "Leave the office",
@@ -48,6 +51,7 @@ export const CONTROLS_TITLE = "Controls";
 export const OPTIONS = {
   title: "Options",
   sensitivity: "Mouse sensitivity",
+  touchSensitivity: "Look sensitivity",
   hints: "Show the keys at the bottom of the screen",
   sound: "Play a sound for direct messages and knocks",
   desktop:
@@ -55,6 +59,8 @@ export const OPTIONS = {
   desktopBlocked:
     "Your browser is blocking notifications for this site. Allow them in its site settings, then turn this on.",
   quality: "Graphics quality",
+  touchQualityNote:
+    "On a phone Auto starts on Low to spare the battery and the graphics chip: High draws sharper and with shadows, and heats the phone more.",
   qualityNote:
     "Low turns the shadows off, draws at a lower resolution and updates people far away less often. Auto switches to Low by itself when the game runs slowly, and never switches back. The edge smoothing changes the next time the page loads.",
   back: "Back",

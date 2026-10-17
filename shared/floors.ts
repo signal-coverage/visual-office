@@ -1,6 +1,7 @@
 import { ROOM_NAME } from "./constants.ts";
 import type { Furniture } from "./furniture.ts";
 import type { PropPlacement } from "./props.ts";
+import type { Shell } from "./shell.ts";
 
 /**
  * The first floor, which every installation has: the main office. It is the
@@ -98,6 +99,17 @@ export const FLOOR_ACCESS_LOST_CODE = 4008;
 export const FLOOR_ACCESS_LOST_MESSAGE =
   "You no longer have access to that room. Moving you to the main office.";
 
+/**
+ * The floor is archived: nobody enters it, whoever they are. Also the code
+ * somebody inside is disconnected with when it is archived: the game takes
+ * them to the common floor.
+ */
+export const FLOOR_ARCHIVED_CODE = 4011;
+export const FLOOR_ARCHIVED_MESSAGE =
+  "This room is archived and cannot be entered.";
+export const FLOOR_ARCHIVED_NOTICE =
+  "That room was archived. Moving you to the main office.";
+
 /** The floor asked for does not exist. */
 export const FLOOR_UNKNOWN_CODE = 4009;
 export const FLOOR_UNKNOWN_MESSAGE = "That room does not exist.";
@@ -115,6 +127,7 @@ export const FLOOR_NOT_AVAILABLE_TEXT =
 export function messageForFloorCode(code: number): string | null {
   if (code === FLOOR_FORBIDDEN_CODE) return FLOOR_FORBIDDEN_MESSAGE;
   if (code === FLOOR_ACCESS_LOST_CODE) return FLOOR_ACCESS_LOST_MESSAGE;
+  if (code === FLOOR_ARCHIVED_CODE) return FLOOR_ARCHIVED_MESSAGE;
   if (code === FLOOR_UNKNOWN_CODE) return FLOOR_UNKNOWN_MESSAGE;
   if (code === FLOOR_UNAVAILABLE_CODE) return FLOOR_UNAVAILABLE_MESSAGE;
   return null;
@@ -142,6 +155,8 @@ export interface LayoutMessage {
   version: number | null;
   furniture: Furniture[];
   models: PropPlacement[];
+  /** The walls, zones, boards and so on of the floor. Left out for a floor that has the default shell. */
+  shell?: Shell;
 }
 
 /** Sent to everybody on a floor that is about to close for editing. */

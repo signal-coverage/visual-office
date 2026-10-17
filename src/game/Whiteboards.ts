@@ -2,8 +2,8 @@ import * as THREE from "three";
 import {
   aimAtBoard,
   BOARDS,
-  boardById,
   canReachBoard,
+  type Board,
   type Vec3,
 } from "../../shared/boards.ts";
 import {
@@ -49,6 +49,9 @@ export class Whiteboards {
   private readonly surfaces = new Map<string, BoardSurface>();
   private readonly cursor: THREE.Mesh;
   private readonly sender: BoardSender;
+  private readonly scene: THREE.Scene;
+  /** The boards of the floor we are on. */
+  private boards: readonly Board[] = [];
   private zone: string | null = null;
   private ink = 0;
   private nextStrokeId = 1;
@@ -56,13 +59,14 @@ export class Whiteboards {
   private sinceSend = 0;
   private aimed: { board: string; point: Point; world: Vec3 } | null = null;
 
-  constructor(scene: THREE.Scene, sender: BoardSender) {
+  constructor(
+    scene: THREE.Scene,
+    sender: BoardSender,
+    boards: readonly Board[] = BOARDS,
+  ) {
     this.sender = sender;
-    for (const board of BOARDS) {
-      const surface = new BoardSurface(board);
-      this.surfaces.set(board.id, surface);
-      scene.add(surface.mesh);
-    }
+    this.scene = scene;
+    this.setBoards(boards);
     this.cursor = new THREE.Mesh(
       new THREE.CircleGeometry(CURSOR_RADIUS, 16),
       new THREE.MeshBasicMaterial({ color: 0x111111, depthTest: false }),
@@ -70,6 +74,25 @@ export class Whiteboards {
     this.cursor.renderOrder = 2;
     this.cursor.visible = false;
     scene.add(this.cursor);
+  }
+
+  /** Puts the boards of a floor on the walls, in place of the ones there were: what was drawn on those is gone from this screen. */
+  setBoards(boards: readonly Board[]): void {
+    this.finishStroke();
+    this.aimed = null;
+    for (const surface of this.surfaces.values()) {
+      surface.mesh.removeFromParent();
+      surface.dispose();
+    }
+    this.surfaces.clear();
+    this.boards = boards;
+    for (const board of boards) {
+      const surface = new BoardSurface(board);
+      this.surfaces.set(board.id, surface);
+      this.scene.add(surface.mesh);
+      // Only the boards of the zone we are in show what is on them
+      if (board.zone !== this.zone) surface.clear();
+    }
   }
 
   get currentInk(): number {
@@ -86,8 +109,8 @@ export class Whiteboards {
   setZone(zone: string | null): void {
     this.finishStroke();
     this.zone = zone;
-    for (const [id, surface] of this.surfaces) {
-      if (boardById(id)?.zone !== zone) surface.clear();
+    for (const board of this.boards) {
+      if (board.zone !== zone) this.surfaces.get(board.id)?.clear();
     }
   }
 
@@ -157,7 +180,7 @@ export class Whiteboards {
     eye: Vec3,
     direction: Vec3,
   ): { board: string; point: Point; world: Vec3 } | null {
-    for (const board of BOARDS) {
+    for (const board of this.boards) {
       if (board.zone !== this.zone || !canReachBoard(board, eye.x, eye.z))
         continue;
       const hit = aimAtBoard(board, eye, direction);
@@ -187,7 +210,7 @@ export class Whiteboards {
     this.cursor.visible = aim !== null;
     if (!aim) return;
     this.cursor.position.set(aim.world.x, aim.world.y, aim.world.z);
-    const board = boardById(aim.board)!;
+    const board = this.boards.find((candidate) => candidate.id === aim.board)!;
     this.cursor.rotation.y = Math.atan2(board.normal.x, board.normal.z);
     (this.cursor.material as THREE.MeshBasicMaterial).color.setHex(
       INKS[this.ink].color === 0xffffff ? 0xbbbbbb : INKS[this.ink].color,

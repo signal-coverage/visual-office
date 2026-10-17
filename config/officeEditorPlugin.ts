@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { format, resolveConfig } from "prettier";
 import type { Plugin } from "vite";
-import { COMMON_FLOOR_ID } from "../shared/floors.ts";
+import { COMMON_FLOOR_ID, sanitizeFloorId } from "../shared/floors.ts";
 import { sanitizeFurniture } from "../shared/furniture.ts";
 import { officeDataSource } from "../shared/officeFile.ts";
 import { isModelFileName, sanitizeModels } from "../shared/props.ts";
@@ -256,8 +256,29 @@ const FLOOR_ROUTES: Record<
   unlock: { path: "/unlock", method: "POST" },
 };
 
+const FLOOR_ACTIONS = Object.keys(FLOOR_ROUTES) as FloorAction[];
+
+/**
+ * The action and the room of a path under `/__editor`: `/floor/<action>` is the
+ * main office (as it has always been) and `/floors/<room>/<action>` any other.
+ * Null for anything else, a room id that is not one included.
+ */
+export function floorRouteOf(
+  route: string,
+): { action: FloorAction; floor: string | undefined } | null {
+  const parts = route.split("/").slice(1);
+  const [head, ...rest] = parts;
+  const room = head === "floors" ? sanitizeFloorId(rest.shift()) : undefined;
+  if ((head !== "floor" && head !== "floors") || room === null) return null;
+  const [action, ...extra] = rest;
+  const known = FLOOR_ACTIONS.find((candidate) => candidate === action);
+  return known && extra.length === 0 ? { action: known, floor: room } : null;
+}
+
 export interface ForwardDeps {
   fetch: typeof fetch;
+  /** The room to talk about: the main office when missing. */
+  floor?: string;
   /** Where the game server is, e.g. http://localhost:2567. */
   baseUrl: string;
   /** The game server's admin token, when it has one. */
@@ -277,7 +298,7 @@ export async function forwardFloor(
   deps: ForwardDeps,
 ): Promise<Reply> {
   const { path: suffix, method } = FLOOR_ROUTES[action];
-  const url = `${deps.baseUrl}/admin/floors/${COMMON_FLOOR_ID}${suffix}`;
+  const url = `${deps.baseUrl}/admin/floors/${deps.floor ?? COMMON_FLOOR_ID}${suffix}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -373,11 +394,9 @@ export function officeEditor(root = process.cwd()): Plugin {
           );
           return;
         }
-        const floorAction =
-          /^\/floor\/(status|layout|publish|lock|heartbeat|unlock)$/.exec(
-            route,
-          )?.[1] as FloorAction | undefined;
-        if (floorAction) {
+        const floorRoute = floorRouteOf(route);
+        if (floorRoute) {
+          const floorAction = floorRoute.action;
           const wantsGet = FLOOR_ROUTES[floorAction].method === "GET";
           if (req.method !== (wantsGet ? "GET" : "POST")) {
             send(res, { status: 405, body: { error: "Wrong method." } });
@@ -395,6 +414,7 @@ export function officeEditor(root = process.cwd()): Plugin {
                 res,
                 await forwardFloor(floorAction, body, {
                   fetch,
+                  floor: floorRoute.floor,
                   baseUrl:
                     process.env.GAME_SERVER_URL ?? "http://localhost:2567",
                   token: process.env.FLOOR_ADMIN_TOKEN,

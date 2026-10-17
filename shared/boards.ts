@@ -1,4 +1,5 @@
-import { WHITEBOARD } from "./layout.ts";
+import { DEFAULT_SHELL } from "./defaultShell.ts";
+import { boardLayers, normalOf, rightOf, type Shell } from "./shell.ts";
 
 export interface Vec3 {
   x: number;
@@ -8,12 +9,13 @@ export interface Vec3 {
 
 /**
  * A flat surface in the world that can be drawn on. It belongs to a private
- * zone: only the people in that zone see what is on it.
+ * zone: only the people in that zone see what is on it. A board with no zone
+ * belongs to the open floor: the people who are in no private zone.
  */
 export interface Board {
   id: string;
-  /** The zone whose people can see and draw on it. */
-  zone: string;
+  /** The zone whose people can see and draw on it; null for the people in the open floor. */
+  zone: string | null;
   center: Vec3;
   /** Unit vector pointing out of the board, toward whoever is looking at it. */
   normal: Vec3;
@@ -23,21 +25,37 @@ export interface Board {
   height: number;
 }
 
-export const BOARDS: readonly Board[] = [
-  {
-    id: "meeting",
-    zone: "meeting",
-    center: { x: WHITEBOARD.x, y: WHITEBOARD.y, z: WHITEBOARD.z },
-    // The board is on the west wall, facing east; seen from the room, -z is to the right
-    normal: { x: 1, y: 0, z: 0 },
-    right: { x: 0, y: 0, z: -1 },
-    width: WHITEBOARD.width,
-    height: WHITEBOARD.height,
-  },
-];
+/** The boards of a shell, each where it hangs on its wall. */
+export function boardsOf(shell: Pick<Shell, "boards">): Board[] {
+  return shell.boards.map((board) => {
+    const normal = normalOf(board.facing);
+    const right = rightOf(board.facing);
+    const sideways = board.facing === "north" || board.facing === "south";
+    const surface = boardLayers(board).surface;
+    return {
+      id: board.id,
+      zone: board.zone,
+      center: {
+        x: sideways ? board.along : surface,
+        y: board.y,
+        z: sideways ? surface : board.along,
+      },
+      normal: { x: normal.x, y: 0, z: normal.z },
+      right: { x: right.x, y: 0, z: right.z },
+      width: board.width,
+      height: board.height,
+    };
+  });
+}
 
-export function boardById(id: string): Board | undefined {
-  return BOARDS.find((board) => board.id === id);
+/** The boards of the default shell. */
+export const BOARDS: readonly Board[] = boardsOf(DEFAULT_SHELL);
+
+export function boardById(
+  id: string,
+  boards: readonly Board[] = BOARDS,
+): Board | undefined {
+  return boards.find((board) => board.id === id);
 }
 
 /** How far from a board (in meters, straight out of it) somebody can draw on it. */

@@ -8,4 +8,6 @@ export interface InteractionPanelProps {
   interactive?: boolean;
   /** Closes it: from the Close button, and from F or Esc when the panel is interactive. */
   onClose?: () => void;
+  /** Walked with fingers: the footer says what to tap, not which keys to press. */
+  touch?: boolean;
 }

@@ -1,5 +1,6 @@
 import type { Box } from "./collision.ts";
-import { MEETING_ROOM } from "./layout.ts";
+import { DEFAULT_SHELL } from "./defaultShell.ts";
+import type { Shell } from "./shell.ts";
 
 /**
  * A private area of the office. Whoever is inside talks only with the others
@@ -15,9 +16,13 @@ export interface Zone {
 /** What the server tells a player when they enter (an id) or leave (null) a zone. */
 export type ZoneMessage = string | null;
 
-export const ZONES: readonly Zone[] = [
-  { id: "meeting", label: "Meeting room", area: MEETING_ROOM },
-];
+/** The private zones of a shell. */
+export function zonesOf(shell: Pick<Shell, "zones">): Zone[] {
+  return shell.zones.map(({ id, label, rect }) => ({ id, label, area: rect }));
+}
+
+/** The zones of the default shell: what a floor has when it never chose another. */
+export const ZONES: readonly Zone[] = zonesOf(DEFAULT_SHELL);
 
 /**
  * How far past the edge someone has to be before the zone changes, in meters.
@@ -28,13 +33,16 @@ export const ZONES: readonly Zone[] = [
  */
 export const ZONE_MARGIN = 0.35;
 
-export function zoneById(id: string): Zone | undefined {
-  return ZONES.find((zone) => zone.id === id);
+export function zoneById(
+  id: string,
+  zones: readonly Zone[] = ZONES,
+): Zone | undefined {
+  return zones.find((zone) => zone.id === id);
 }
 
 /** What to call a zone on screen; an id this client does not know is shown as it is. */
-export function zoneLabel(id: string): string {
-  return zoneById(id)?.label ?? id;
+export function zoneLabel(id: string, zones: readonly Zone[] = ZONES): string {
+  return zoneById(id, zones)?.label ?? id;
 }
 
 const inside = (x: number, z: number, area: Box, margin: number) =>
@@ -52,10 +60,11 @@ export function zoneAt(
   x: number,
   z: number,
   current: string | null,
+  zones: readonly Zone[] = ZONES,
 ): string | null {
-  const stay = current ? zoneById(current) : undefined;
+  const stay = current ? zoneById(current, zones) : undefined;
   if (stay && inside(x, z, stay.area, -ZONE_MARGIN)) return stay.id;
-  for (const zone of ZONES) {
+  for (const zone of zones) {
     if (inside(x, z, zone.area, ZONE_MARGIN)) return zone.id;
   }
   return null;

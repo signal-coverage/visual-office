@@ -7,9 +7,14 @@ import {
 } from "./floorPreviews.ts";
 import { MemoryFloorStore } from "./floorStore.ts";
 import { MemoryLayoutStore } from "./layoutStore.ts";
+import { templateById } from "../shared/floorTemplates.ts";
 
 interface Plan {
   id: string;
+  width: number;
+  depth: number;
+  glass: unknown[];
+  zones: unknown[];
   items: unknown[];
 }
 
@@ -54,6 +59,32 @@ describe("floor previews", () => {
     const reply = await get();
     expect(reply?.status).toBe(200);
     expect((await plans()).map((plan) => plan.id)).toEqual(["office", "hr"]);
+  });
+
+  it("does not show an archived room, at once, and shows it again when it is brought back", async () => {
+    expect((await plans()).map((plan) => plan.id)).toEqual(["office", "hr"]);
+    await floors.archive("hr");
+    expect((await plans()).map((plan) => plan.id)).toEqual(["office"]);
+    await floors.unarchive("hr");
+    expect((await plans()).map((plan) => plan.id)).toEqual(["office", "hr"]);
+  });
+
+  it("shows each room's own shell: its size, glass and zones", async () => {
+    const meeting = templateById("meeting")!;
+    await layouts.publish(
+      "hr",
+      { furniture: meeting.furniture, models: [], shell: meeting.shell },
+      "user_ana",
+    );
+    const all = await plans();
+    const hr = all.find((plan) => plan.id === "hr")!;
+    const office = all.find((plan) => plan.id === "office")!;
+    expect([hr.width, hr.depth]).toEqual([36, 20]);
+    expect(hr.zones).toHaveLength(3);
+    expect(hr.glass).toHaveLength(5);
+    // The main office keeps its own
+    expect([office.width, office.depth]).toEqual([30, 20]);
+    expect(office.zones).toHaveLength(1);
   });
 
   it("uses the published layout of a room and the default for the others", async () => {

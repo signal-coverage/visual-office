@@ -3,7 +3,7 @@ import * as styles from "./styles";
 import type { SelfViewProps } from "./types";
 
 /** A small mirrored preview of our own camera, so we know what others see. */
-export function SelfView({ element }: SelfViewProps) {
+export function SelfView({ element, touch = false }: SelfViewProps) {
   const frameRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -17,5 +17,7 @@ export function SelfView({ element }: SelfViewProps) {
   }, [element]);
 
   if (!element) return null;
-  return <div ref={frameRef} style={styles.frame} />;
+  return (
+    <div ref={frameRef} style={touch ? styles.touchFrame : styles.frame} />
+  );
 }

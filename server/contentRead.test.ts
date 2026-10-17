@@ -4,6 +4,7 @@ import type { AuthResult } from "./authenticate.ts";
 import { handleContentRead } from "./contentRead.ts";
 import { MemoryContentStore } from "./contentStore.ts";
 import { MemoryFloorStore } from "./floorStore.ts";
+import { MemoryGroupStore } from "./groupStore.ts";
 import { MemoryUserStore } from "./userStore.ts";
 
 const fields = (overrides: Partial<ContentFields> = {}): ContentFields => ({
@@ -26,6 +27,7 @@ describe("handleContentRead", () => {
   let floors: MemoryFloorStore;
   let users: MemoryUserStore;
   let content: MemoryContentStore;
+  let groups: MemoryGroupStore;
   let who: AuthResult | null;
   let now: number;
 
@@ -43,6 +45,7 @@ describe("handleContentRead", () => {
       {
         authenticate: async () => who,
         floors,
+        groups,
         rolesOf: (id) => users.rolesOf(id),
         content,
       },
@@ -54,6 +57,7 @@ describe("handleContentRead", () => {
     now = 100;
     floors = new MemoryFloorStore(() => 1);
     users = new MemoryUserStore();
+    groups = new MemoryGroupStore(() => 1, floors);
     content = new MemoryContentStore(
       () => now++,
       (() => {
@@ -75,6 +79,18 @@ describe("handleContentRead", () => {
     expect(await call("/account/floors/office/contents")).toBeNull();
     expect(await call("/account/floors/office/content/a/b")).toBeNull();
     expect(await call("/admin/content")).toBeNull();
+  });
+
+  it("lets in somebody whose group has the room, and nobody into an archived one", async () => {
+    await groups.create({ id: "people", name: "People" });
+    await groups.setFloor("people", "hr", true);
+    expect((await call("/account/floors/hr/content"))?.status).toBe(403);
+    await groups.setMember("people", "user_ana", true);
+    expect((await call("/account/floors/hr/content"))?.status).toBe(200);
+    await floors.archive("hr");
+    expect((await call("/account/floors/hr/content"))?.status).toBe(403);
+    who = null;
+    expect((await call("/account/floors/hr/content"))?.status).toBe(403);
   });
 
   it("only answers to GET", async () => {

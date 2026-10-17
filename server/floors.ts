@@ -1,5 +1,6 @@
 import { FloorLocks, type FloorLockStore } from "./floorLocks.ts";
 import { MemoryFloorStore, type FloorStore } from "./floorStore.ts";
+import { MemoryGroupStore, type GroupStore } from "./groupStore.ts";
 import { MemoryLayoutStore, type LayoutStore } from "./layoutStore.ts";
 import type { ModerationRooms } from "./moderationService.ts";
 
@@ -49,10 +50,33 @@ export const floorDirectory: FloorStore = {
   get: (id) => floorStore.get(id),
   create: (input) => floorStore.create(input),
   rename: (id, name) => floorStore.rename(id, name),
+  archive: (id) => floorStore.archive(id),
+  unarchive: (id) => floorStore.unarchive(id),
   grant: (floor, userId) => floorStore.grant(floor, userId),
   revoke: (floor, userId) => floorStore.revoke(floor, userId),
   floorsOf: (userId) => floorStore.floorsOf(userId),
   allGrants: () => floorStore.allGrants(),
+};
+
+let groupStore: GroupStore = new MemoryGroupStore(Date.now, floorDirectory);
+
+/** Where the role groups are kept from now on: memory until the server connects a database. */
+export function setGroupStore(next: GroupStore): void {
+  groupStore = next;
+}
+
+/** The role groups: who is in each and which rooms each opens. One for the whole server. */
+export const groupDirectory: GroupStore = {
+  list: () => groupStore.list(),
+  get: (id) => groupStore.get(id),
+  create: (input) => groupStore.create(input),
+  rename: (id, name) => groupStore.rename(id, name),
+  remove: (id) => groupStore.remove(id),
+  setMember: (group, userId, member) =>
+    groupStore.setMember(group, userId, member),
+  setFloor: (group, floor, allowed) =>
+    groupStore.setFloor(group, floor, allowed),
+  groupsOf: (userId) => groupStore.groupsOf(userId),
 };
 
 /** The ids of the floors there are now: floors are made while the server runs, so this is asked for each time. */
@@ -108,6 +132,8 @@ export interface ModeratedRoom {
   setVoiceMuted: (userId: string, muted: boolean) => Promise<number>;
   /** Somebody's roles or entries changed: sends them out if they may no longer be here. */
   accessChanged?: (userId: string) => void;
+  /** The floor was archived: everybody inside is sent to the common floor. */
+  floorArchived?: () => void;
 }
 
 const moderatedRooms = new Map<string, Set<ModeratedRoom>>();
@@ -133,6 +159,18 @@ export function recheckAccess(floor: string, userId: string): void {
     } catch (error) {
       // One room failing must not leave the person in the others
       console.error("A room could not check somebody's access:", error);
+    }
+  }
+}
+
+/** Tells every room of a floor that it was archived, so the people inside are moved to the common floor. */
+export function floorArchived(floor: string): void {
+  for (const room of moderatedRooms.get(floor) ?? []) {
+    try {
+      room.floorArchived?.();
+    } catch (error) {
+      // One room failing must not leave the people in the others
+      console.error("A room could not send its people out:", error);
     }
   }
 }

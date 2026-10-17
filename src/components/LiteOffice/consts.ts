@@ -26,7 +26,7 @@ export const INCLUDED = [
   "See who is in the office, and who is away or busy.",
   "Read and send chat messages, to everybody or to one person.",
   "Open the calendars of the rooms.",
-  "Join the voice call: you hear everybody in the open office and can mute and unmute yourself.",
+  "Voice, where the server has it: join the call and talk. You hear everybody in the open office and they hear you. Your microphone is asked for only when you press Join voice, and you can mute and unmute yourself.",
 ] as const;
 
 export const MISSING_TITLE = "What is not included";
@@ -39,11 +39,15 @@ export const MISSING = [
 /** The voice button of the game talks about keys and the camera: neither is here. */
 export const VOICE_LABELS: Record<VoiceState, string> = {
   unavailable: "",
-  idle: "Join voice",
+  idle: "Join voice · asks for your microphone",
   connecting: "Joining the call…",
   live: "Mic on · tap to mute",
   muted: "Muted · tap to unmute",
   error: "Call failed · tap to retry",
 };
+
+/** Said instead of the voice button when the server has no call to join: not a missing feature of this screen. */
+export const VOICE_UNAVAILABLE =
+  "Voice is not available on this server, so there is no call to join.";
 
 export const ONLINE_NOTE = "You are in the office as";

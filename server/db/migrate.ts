@@ -159,6 +159,68 @@ export const MIGRATIONS: ReadonlyArray<{ id: string; sql: string }> = [
       CREATE INDEX IF NOT EXISTS floor_content_floor_idx
       ON floor_content (floor, kind, position)`,
   },
+  {
+    // The shell of a floor (its size, walls, zones, boards...) travels with each layout version.
+    // Null is the default shell, which is what every version stored before this step has
+    id: "014_floor_layout_shell",
+    sql: `ALTER TABLE floor_layouts ADD COLUMN IF NOT EXISTS shell jsonb`,
+  },
+  {
+    // An archived room is hidden and cannot be entered, but keeps its layouts, content, entries and
+    // history. Null is a room in use, which is what every row stored before this step is
+    id: "015_floor_archived_at",
+    sql: `ALTER TABLE floors ADD COLUMN IF NOT EXISTS archived_at bigint`,
+  },
+  {
+    // Role groups: a name for a set of people who get the same rooms
+    id: "016_groups",
+    sql: `
+      CREATE TABLE IF NOT EXISTS groups (
+        id         text   PRIMARY KEY,
+        name       text   NOT NULL,
+        created_at bigint NOT NULL
+      )`,
+  },
+  {
+    id: "017_group_members",
+    sql: `
+      CREATE TABLE IF NOT EXISTS group_members (
+        group_id text NOT NULL REFERENCES groups (id) ON DELETE CASCADE,
+        user_id  text NOT NULL,
+        PRIMARY KEY (group_id, user_id)
+      )`,
+  },
+  {
+    id: "018_group_floors",
+    sql: `
+      CREATE TABLE IF NOT EXISTS group_floors (
+        group_id text NOT NULL REFERENCES groups (id) ON DELETE CASCADE,
+        floor_id text NOT NULL REFERENCES floors (id),
+        PRIMARY KEY (group_id, floor_id)
+      )`,
+  },
+  {
+    // Moderators' bans, so they outlive a restart. One row per ban; a new ban replaces the old
+    // one. Lapsed rows are deleted lazily, never by a schedule
+    id: "019_bans",
+    sql: `
+      CREATE TABLE IF NOT EXISTS bans (
+        id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id    text   NOT NULL,
+        until      bigint NOT NULL,
+        reason     text,
+        by_user_id text,
+        created_at bigint NOT NULL
+      )`,
+  },
+  {
+    id: "020_bans_user_index",
+    sql: `CREATE INDEX IF NOT EXISTS bans_user_idx ON bans (user_id)`,
+  },
+  {
+    id: "021_bans_until_index",
+    sql: `CREATE INDEX IF NOT EXISTS bans_until_idx ON bans (until)`,
+  },
 ];
 
 /** Brings the database up to date, running only the steps it has not had yet. */

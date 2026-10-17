@@ -18,21 +18,3 @@ export interface InspectorProps {
   /** Switches every field off, for when the plan cannot be edited. */
   isDisabled?: boolean;
 }
-
-export interface NumberFieldProps {
-  label: string;
-  value: number;
-  step: number;
-  min?: number;
-  isDisabled?: boolean;
-  /** Called with a valid number, when the person leaves the field or presses Enter. */
-  onCommit: (value: number) => void;
-}
-
-export interface ChoiceFieldProps {
-  label: string;
-  value: number;
-  options: ReadonlyArray<{ value: number; label: string }>;
-  isDisabled?: boolean;
-  onChoose: (value: number) => void;
-}

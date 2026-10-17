@@ -28,6 +28,7 @@ import {
 } from "../../shared/presence.ts";
 import { moveWithCollisions } from "../../shared/collision.ts";
 import {
+  actionFor,
   aimedInteractable,
   hintFor,
   panelFor,
@@ -40,22 +41,21 @@ import { SEAT_REFUSAL_TEXT } from "../../shared/seats.ts";
 import {
   MOVE_SEND_RATE,
   PLAYER_RADIUS,
-  RUN_SPEED,
   SPAWN,
-  WALK_SPEED,
 } from "../../shared/constants.ts";
 import type { FloorMessage, LayoutMessage } from "../../shared/floors.ts";
 import {
   OFFICE_COLLIDERS,
   OFFICE_INTERACTABLES,
   sceneFor,
+  type FloorScene,
 } from "../../shared/layout.ts";
+import { OFFICE_FURNITURE } from "../../shared/officeData.ts";
 import { buildRoster, type Roster } from "../../shared/roster.ts";
-import { SCREENS } from "../../shared/screens.ts";
 import { randomSpawn } from "../../shared/spawn.ts";
-import { zoneLabel } from "../../shared/zones.ts";
-import { areaAt } from "../../shared/areas.ts";
-import { CallController } from "./CallController";
+import { ZONES, zoneLabel, type Zone } from "../../shared/zones.ts";
+import { AREAS, areaAt, type Area } from "../../shared/areas.ts";
+import { CallController, type ScreenView } from "./CallController";
 import { FpsMeter } from "./FpsMeter";
 import { isSoftwareRenderer, readGpuName } from "./gpu";
 import { shouldDropKeys } from "./lockKeys";
@@ -74,13 +74,12 @@ import {
   type QualityChoice,
   type QualityLevel,
 } from "./quality";
+import { MOUSE_SENSITIVITY, TOUCH_LOOK_GAIN, turnView } from "./look";
 import { lerp } from "./math";
+import { keyIntent, moveStep } from "./moveIntent";
 import { RemotePlayers } from "./RemotePlayers";
-import {
-  clampSeatedYaw,
-  SEATED_EYE_HEIGHT,
-  STANDING_EYE_HEIGHT,
-} from "./seatedPose";
+import { SEATED_EYE_HEIGHT, STANDING_EYE_HEIGHT } from "./seatedPose";
+import type { TouchSource } from "../touch/touchInput";
 import { ScreenDisplay } from "./ScreenDisplay";
 import { Whiteboards, type BoardAim } from "./Whiteboards";
 import type { VoiceState } from "./VoiceChat";
@@ -126,8 +125,10 @@ export interface GameEvents {
   onEmoteKey: (held: boolean) => void;
   /** Whether the server lets us moderate this floor: it decides, and checks again on every action. */
   onModerator: (can: boolean) => void;
-  /** What clicking would do where we look (or how to get up while sitting), or null when there is nothing to use. */
+  /** What using where we look would do (or how to get up while sitting), or null when there is nothing to use. With touch controls it is the action alone ("Sit down"), for a button. */
   onInteractHint: (hint: string | null) => void;
+  /** We sat down or got up: a screen with no keys offers a button to stand. */
+  onSeatedChange: (seated: boolean) => void;
   /** What we used (a computer, a shelf, a plant) is to be shown, or null when it is closed. */
   onInteractPanel: (panel: PanelContent | null) => void;
 }
@@ -158,6 +159,8 @@ export interface Diagnostics {
 export interface GameOptions {
   quality: QualityChoice;
   softwareRendering: boolean;
+  /** The office is walked with fingers: no mouse is captured, and the game reads a touch source instead. */
+  touch?: boolean;
 }
 
 const DEFAULT_OPTIONS: GameOptions = {
@@ -186,6 +189,7 @@ const NO_EVENTS: GameEvents = {
   onEmoteKey: () => {},
   onModerator: () => {},
   onInteractHint: () => {},
+  onSeatedChange: () => {},
   onInteractPanel: () => {},
 };
 
@@ -216,12 +220,11 @@ const MOVE_KEYS: ReadonlySet<string> = new Set([
   "KeyD",
 ]);
 const STAND_HINT = "F or Space · Stand up";
-/** How far a seated person turns their head from the way the chair faces. */
-const SEAT_LOOK_LIMIT = (100 * Math.PI) / 180;
+const STAND_ACTION = "Stand up";
+/** A little more than the server's own wait between sitting and getting up. */
+const STAND_RETRY_MS = 350;
 /** How quickly the eyes go down to the seat and up again. */
 const EYE_EASING = 10;
-const MOUSE_SENSITIVITY = 0.002;
-const MAX_PITCH = Math.PI / 2 - 0.05;
 
 /** For each seat of a layout, whether it faces a desk. */
 function seatsOf(interactables: Interactable[]): Map<string, boolean> {
@@ -231,6 +234,9 @@ function seatsOf(interactables: Interactable[]): Map<string, boolean> {
     ),
   );
 }
+
+/** What a floor is drawn from until the server says what it is made of: the main office, without its own models. */
+const DEFAULT_SCENE = sceneFor({ furniture: OFFICE_FURNITURE, models: [] });
 
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
@@ -246,6 +252,11 @@ export class Game {
   private props = loadProps();
   private colliders = OFFICE_COLLIDERS;
   private interactables = OFFICE_INTERACTABLES;
+  /** The private zones and the named areas of the floor: the main office's until the server says what the floor is. */
+  private zones: readonly Zone[] = ZONES;
+  private areas: readonly Area[] = AREAS;
+  /** The private zone we are in (its id), or null in the open floor. */
+  private zone: string | null = null;
   /** The seat we sit in, as the server put us there; null while standing. */
   private seat: { id: string; yaw: number } | null = null;
   /** What we look at and could use, and the hint we told the screen about it. */
@@ -277,7 +288,10 @@ export class Game {
   private events = NO_EVENTS;
   private readonly call: CallController;
   private readonly whiteboards: Whiteboards;
-  private readonly screen: ScreenDisplay;
+  /** The screens on the walls of the floor, each for the zone it belongs to. */
+  private screens: Array<{ zone: string; display: ScreenDisplay }> = [];
+  /** What the screens show, when it is the screen of the zone we are in. */
+  private screenView: ScreenView = { kind: "none" };
   /** The left mouse button is down while the mouse is captured. */
   private drawing = false;
   /** Whether the mouse was captured the last time the browser announced a change. */
@@ -289,6 +303,14 @@ export class Game {
   private readonly gpu: string;
   private corrections = 0;
   private mouseSensitivity = MOUSE_SENSITIVITY;
+  /** The office is walked with fingers: nothing captures the mouse. */
+  private readonly touchMode: boolean;
+  /** What fingers on the screen ask for, once the touch controls are up. */
+  private touchSource: TouchSource | null = null;
+  /** Whether the joystick was pushed on the last frame: a push that starts gets us up from a seat. */
+  private touchPushing = false;
+  private readonly tapRay = new THREE.Vector3();
+  private standRetry: ReturnType<typeof setTimeout> | undefined;
   /** What we chose to show as doing: the server adds away and busy when they apply. */
   private chosenStatus: Status = DEFAULT_STATUS;
   private lastStatusSentAt = -Infinity;
@@ -302,6 +324,8 @@ export class Game {
   private level: QualityLevel;
   private frame = 0;
   private sun: THREE.DirectionalLight | null = null;
+  private removeE2eHook: (() => void) | null = null;
+  private canvasObserver: ResizeObserver | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -310,7 +334,8 @@ export class Game {
     this.canvas = canvas;
     this.qualityChoice = options.quality;
     this.softwareRendering = options.softwareRendering;
-    this.auto = startAutoQuality(options.softwareRendering);
+    this.touchMode = options.touch ?? false;
+    this.auto = startAutoQuality(options.softwareRendering, this.touchMode);
     this.level = resolveLevel(options.quality, {
       softwareRendering: options.softwareRendering,
       autoLevel: this.auto.level,
@@ -333,15 +358,14 @@ export class Game {
       QUALITY_PROFILES[this.level].avatarDetail,
     );
     this.remotePlayers.setSeats(seatsOf(this.interactables));
-    this.screen = new ScreenDisplay(SCREENS[0]);
-    this.scene.add(this.screen.group);
     this.call = new CallController({
       onState: (state) => this.events.onVoiceState(state),
       onMicLevel: (steps) => this.events.onMicLevel(steps),
       onCamera: (on, selfView) => this.events.onCamera(on, selfView),
       onRemoteVideo: (id, element) => this.remotePlayers.setVideo(id, element),
       onScreen: (view) => {
-        this.screen.show(view);
+        this.screenView = view;
+        this.showScreenView();
         this.events.onScreenShare(
           view.kind === "remote"
             ? { kind: "remote", name: view.name }
@@ -361,6 +385,7 @@ export class Game {
     this.scene.background = new THREE.Color(0x1b1d24);
     this.scene.add(this.office, this.props.group);
     this.addLights();
+    this.applyShell(DEFAULT_SCENE);
     this.applyLevel();
 
     this.resize();
@@ -372,7 +397,34 @@ export class Game {
     document.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("pointerlockchange", this.onLockChange);
     canvas.addEventListener("click", this.requestLock);
+    window.addEventListener("orientationchange", this.resize);
+    if (this.touchMode) {
+      document.addEventListener("pointerdown", this.onTouchActivity);
+      this.canvasObserver = new ResizeObserver(this.resize);
+      this.canvasObserver.observe(canvas);
+    }
 
+    // Only in development, and written here so the whole block is gone from the production build
+    if (import.meta.env.DEV)
+      void import("./e2eHook").then(({ installE2eHook }) => {
+        if (this.disposed) return;
+        this.removeE2eHook = installE2eHook(window.location.search, {
+          pose: () => ({
+            x: this.position.x,
+            z: this.position.z,
+            yaw: this.yaw,
+            pitch: this.pitch,
+          }),
+          place: ({ x, z, yaw, pitch }) => {
+            this.position = { x, z };
+            this.yaw = yaw;
+            this.pitch = pitch;
+          },
+          seated: () => this.seat !== null,
+          renderInfo: () => this.renderer.info.render,
+          remotePlayers: this.remotePlayers,
+        });
+      });
     this.loop();
   }
 
@@ -387,6 +439,7 @@ export class Game {
   ) {
     this.events = events;
     this.area = null; // so the new listener hears where we already are
+    this.zone = null;
     this.seat = null;
     this.interactAim = null;
     this.shownHint = null;
@@ -396,6 +449,7 @@ export class Game {
     this.lastInputAt = performance.now();
     this.setEmoteKeyHeld(false);
     events.onStatusChosen(DEFAULT_STATUS);
+    events.onSeatedChange(false);
     this.awaitingSpawn = true;
     // A mute belongs to the session that was muted: a new one starts able to speak
     this.call.setMutedByModerator(false);
@@ -418,18 +472,24 @@ export class Game {
         onPlayerAdded: (id, player) => this.remotePlayers.add(id, player),
         onPlayerRemoved: (id) => this.remotePlayers.remove(id),
         onPlayers: (players, selfId) => {
-          if (!this.disposed) events.onRoster(buildRoster(players, selfId));
+          if (!this.disposed)
+            events.onRoster(buildRoster(players, selfId, this.zones));
         },
         onChat: events.onChat,
         onChatRefused: (reason) => events.onNotice(CHAT_REFUSAL_TEXT[reason]),
         onKnock: ({ name, place }) =>
-          events.onKnock(knockText(name, place ? zoneLabel(place) : null)),
+          events.onKnock(
+            knockText(name, place ? zoneLabel(place, this.zones) : null),
+          ),
         onKnocked: (ack) => events.onNotice(knockAckText(ack)),
         onVoice: (credentials) => this.call.setCredentials(credentials),
         onZone: (zone) => {
+          this.zone = zone;
           this.whiteboards.setZone(zone);
+          this.showScreenView();
           this.call.enteredZone(zone);
-          if (!this.disposed) events.onZone(zone ? zoneLabel(zone) : null);
+          if (!this.disposed)
+            events.onZone(zone ? zoneLabel(zone, this.zones) : null);
         },
         onDraw: (stroke) => this.whiteboards.applyStroke(stroke),
         onClearBoard: (board) => this.whiteboards.clearBoard(board),
@@ -472,9 +532,12 @@ export class Game {
             // The server has our position but still the way the chair faced: say where we look
             this.lastSent = { x, z, yaw: NaN };
           }
+          if (!this.disposed) events.onSeatedChange(this.seat !== null);
         },
         onSeatRefused: (reason) => {
           if (reason !== "cooldown") events.onNotice(SEAT_REFUSAL_TEXT[reason]);
+          // A button is pressed once and a thumb may press it too soon: ask again when the wait is over
+          else if (this.touchMode) this.standAgain();
         },
         onSeat: (id) => this.remotePlayers.applySeat(id),
         onModerated: (reply) => {
@@ -495,7 +558,9 @@ export class Game {
           this.connection = null;
           this.reconnecting = false;
           this.seat = null;
+          if (!this.disposed) events.onSeatedChange(false);
           this.remotePlayers.dispose();
+          this.zone = null;
           this.whiteboards.setZone(null);
           if (this.disposed) return;
           this.call.reset();
@@ -520,6 +585,7 @@ export class Game {
       layout.version === null ? "default" : `${this.floorId}:${layout.version}`;
     if (key === this.layoutKey) return;
     const floor = sceneFor(layout);
+    this.applyShell(floor);
     this.scene.remove(this.office, this.props.group);
     disposeOffice(this.office);
     this.props.dispose();
@@ -532,6 +598,42 @@ export class Game {
     this.remotePlayers.setSeats(seatsOf(floor.interactables));
     this.interactAim = null;
     this.layoutKey = key;
+  }
+
+  /** What the shell of the floor says about the parts that are not drawn with the office: names, boards, screens and the shadow of the sun. */
+  private applyShell(floor: FloorScene) {
+    const { shell } = floor;
+    this.zones = floor.zones;
+    this.areas = floor.areas;
+    // So the screen hears where we stand on this floor
+    this.area = null;
+    this.whiteboards.setBoards(floor.boards);
+    for (const { display } of this.screens) display.dispose();
+    this.screens = floor.screens.map((screen) => {
+      const display = new ScreenDisplay(screen);
+      this.scene.add(display.group);
+      return { zone: screen.zone, display };
+    });
+    this.call.setScreenZones(floor.screens.map((screen) => screen.zone));
+    this.showScreenView();
+    this.fitSun(shell);
+  }
+
+  /** Each screen shows what is shared in its zone's call, if we are in that zone, and a note that nothing is otherwise. */
+  private showScreenView() {
+    for (const { zone, display } of this.screens)
+      display.show(zone === this.zone ? this.screenView : { kind: "none" });
+  }
+
+  /** The sun's shadow has to cover the whole floor. */
+  private fitSun(shell: { width: number; depth: number }) {
+    if (!this.sun) return;
+    const { camera } = this.sun.shadow;
+    camera.left = -(shell.width / 2 + 1);
+    camera.right = shell.width / 2 + 1;
+    camera.top = shell.depth / 2 + 2;
+    camera.bottom = -(shell.depth / 2 + 2);
+    camera.updateProjectionMatrix();
   }
 
   /** Says something to everybody, to the people nearby, or (with `to`, a session id) to one person. The server decides who receives it. */
@@ -582,6 +684,15 @@ export class Game {
     if (this.seat) this.connection?.sendStand();
   }
 
+  /** The server made us wait a moment between sitting and getting up: asks once more after it. */
+  private standAgain() {
+    if (!this.seat || this.standRetry !== undefined) return;
+    this.standRetry = setTimeout(() => {
+      this.standRetry = undefined;
+      this.standUp();
+    }, STAND_RETRY_MS);
+  }
+
   /** Whether something we used is on the screen. */
   get interactionOpen(): boolean {
     return this.panelOpen;
@@ -607,7 +718,11 @@ export class Game {
   private interact() {
     if (this.seat) return this.standUp();
     if (this.panelOpen) return this.closeInteraction();
-    const aim = this.interactAim;
+    this.use(this.interactAim);
+  }
+
+  /** Uses a thing: sits on it, or opens what it shows. */
+  private use(aim: Interactable | null) {
     if (!aim) return;
     if (aim.kind === "sit") {
       this.connection?.sendSeat(aim.id);
@@ -623,6 +738,40 @@ export class Game {
   private interactFromClick() {
     if (this.boardAim || this.seat) return;
     this.interact();
+  }
+
+  /** The button of the touch controls: the same as F. */
+  useOrStand() {
+    this.interact();
+  }
+
+  /**
+   * The touch controls are up: the game reads what fingers ask for from this,
+   * every frame. It may be put away (null) or set again.
+   */
+  setTouchSource(source: TouchSource | null) {
+    this.touchSource = source;
+    this.touchPushing = false;
+  }
+
+  /** A quick touch on the scene, at (x, y) in the page: uses the thing under the finger, if it is within reach. */
+  private tapAt(x: number, y: number) {
+    if (this.boardAim || this.seat) return;
+    if (this.panelOpen) return this.closeInteraction();
+    const { left, top, width, height } = this.canvas.getBoundingClientRect();
+    if (width <= 0 || height <= 0) return;
+    this.camera.updateMatrixWorld();
+    this.tapRay
+      .set(((x - left) / width) * 2 - 1, -((y - top) / height) * 2 + 1, 0.5)
+      .unproject(this.camera)
+      .sub(this.camera.position);
+    const hit = aimedInteractable(
+      this.interactables,
+      { x: this.position.x, y: this.eyeHeight, z: this.position.z },
+      this.tapRay,
+      this.colliders,
+    );
+    this.use(hit?.interactable ?? null);
   }
 
   /** Leaves the office on purpose. The game is told as for any other disconnection. */
@@ -695,7 +844,7 @@ export class Game {
     return this.call.choosingScreen;
   }
 
-  /** Captures the mouse again, e.g. after closing the chat input. */
+  /** Captures the mouse again, e.g. after closing the chat input. With fingers there is no mouse to capture. */
   relock() {
     this.requestLock();
   }
@@ -712,14 +861,19 @@ export class Game {
 
   dispose() {
     this.disposed = true;
+    this.removeE2eHook?.();
     this.call.dispose();
     this.connection?.leave();
     this.connection = null;
     this.remotePlayers.dispose();
     this.whiteboards.dispose();
-    this.screen.dispose();
+    for (const { display } of this.screens) display.dispose();
     cancelAnimationFrame(this.frameId);
     window.removeEventListener("resize", this.resize);
+    window.removeEventListener("orientationchange", this.resize);
+    document.removeEventListener("pointerdown", this.onTouchActivity);
+    this.canvasObserver?.disconnect();
+    clearTimeout(this.standRetry);
     document.removeEventListener("keydown", this.onKeyDown);
     document.removeEventListener("keyup", this.onKeyUp);
     document.removeEventListener("mousemove", this.onMouseMove);
@@ -739,14 +893,13 @@ export class Game {
     sun.castShadow = QUALITY_PROFILES[this.level].shadows;
     this.sun = sun;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -16;
-    sun.shadow.camera.right = 16;
-    sun.shadow.camera.top = 12;
-    sun.shadow.camera.bottom = -12;
     this.scene.add(sun);
+    this.fitSun(DEFAULT_SCENE.shell);
   }
 
   private readonly requestLock = () => {
+    // With fingers there is no mouse to capture (and some phones do not have the call at all)
+    if (this.touchMode) return;
     // Already captured (a click while walking): asking again only makes the browser announce it again
     if (this.isLocked) return;
     // Returns a promise in Chromium and nothing elsewhere. It rejects when the
@@ -756,6 +909,11 @@ export class Game {
 
   private get isLocked() {
     return document.pointerLockElement === this.canvas;
+  }
+
+  /** Whether the person is steering: the mouse is captured, or the touch controls are up and nothing covers the scene. */
+  private get steering() {
+    return this.isLocked || (this.touchSource?.enabled ?? false);
   }
 
   private setEmoteKeyHeld(held: boolean) {
@@ -826,12 +984,52 @@ export class Game {
   private readonly onMouseMove = (e: MouseEvent) => {
     this.lastInputAt = performance.now();
     if (!this.isLocked) return;
-    this.yaw -= e.movementX * this.mouseSensitivity;
-    this.pitch -= e.movementY * this.mouseSensitivity;
-    this.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.pitch));
-    if (this.seat)
-      this.yaw = clampSeatedYaw(this.yaw, this.seat.yaw, SEAT_LOOK_LIMIT);
+    this.turn(e.movementX, e.movementY, this.mouseSensitivity);
   };
+
+  /** A finger touched the screen: the person is there. */
+  private readonly onTouchActivity = () => {
+    this.lastInputAt = performance.now();
+  };
+
+  /** Turns the view by what a pointer moved, in pixels. */
+  private turn(dx: number, dy: number, sensitivity: number) {
+    const view = turnView(
+      { yaw: this.yaw, pitch: this.pitch },
+      dx,
+      dy,
+      sensitivity,
+      this.seat ? this.seat.yaw : null,
+    );
+    this.yaw = view.yaw;
+    this.pitch = view.pitch;
+  }
+
+  /** What fingers ask for this frame: turning, getting up by pushing the joystick, and taps. */
+  private readTouch() {
+    const touch = this.touchSource;
+    if (!touch) return;
+    if (!touch.enabled) {
+      this.touchPushing = false;
+      return;
+    }
+    const { dx, dy } = touch.takeLook();
+    if (dx !== 0 || dy !== 0) {
+      this.turn(dx, dy, this.mouseSensitivity * TOUCH_LOOK_GAIN);
+      this.lastInputAt = performance.now();
+    }
+    const { forward, strafe } = touch.intent();
+    const pushing = forward !== 0 || strafe !== 0;
+    // Like the first press of W A S D: it gets us up from a seat and puts away what we read
+    if (pushing && !this.touchPushing) {
+      this.standUp();
+      this.closeInteraction();
+    }
+    if (pushing) this.lastInputAt = performance.now();
+    this.touchPushing = pushing;
+    const tap = touch.takeTap();
+    if (tap) this.tapAt(tap.x, tap.y);
+  }
 
   private readonly resize = () => {
     const { clientWidth: w, clientHeight: h } = this.canvas;
@@ -844,26 +1042,21 @@ export class Game {
   };
 
   private update(dt: number) {
-    if (this.isLocked && !this.seat) {
-      const forward =
-        Number(this.keys.has("KeyW")) - Number(this.keys.has("KeyS"));
-      const strafe =
-        Number(this.keys.has("KeyD")) - Number(this.keys.has("KeyA"));
-      const length = Math.hypot(forward, strafe);
-      if (length > 0) {
-        const speed = this.keys.has("ShiftLeft") ? RUN_SPEED : WALK_SPEED;
-        const sin = Math.sin(this.yaw);
-        const cos = Math.cos(this.yaw);
-        // Camera looks toward (-sin, -cos) at yaw; right vector is (cos, -sin)
-        const dx = (-sin * forward + cos * strafe) / length;
-        const dz = (-cos * forward - sin * strafe) / length;
+    this.readTouch();
+    if (this.steering && !this.seat) {
+      const step = moveStep(
+        this.isLocked
+          ? keyIntent(this.keys)
+          : (this.touchSource?.intent() ?? keyIntent(this.keys)),
+        this.yaw,
+      );
+      if (step)
         this.position = moveWithCollisions(
           this.position,
-          { x: dx * speed * dt, z: dz * speed * dt },
+          { x: step.dx * dt, z: step.dz * dt },
           this.colliders,
           PLAYER_RADIUS,
         );
-      }
     }
 
     this.eyeHeight = lerp(
@@ -901,7 +1094,7 @@ export class Game {
 
   /** Tells the screen the name of the part of the office we stand in, when it changes. */
   private updateArea() {
-    const area = areaAt(this.position.x, this.position.z);
+    const area = areaAt(this.position.x, this.position.z, this.areas);
     if (area === this.area) return;
     this.area = area;
     this.events.onArea(area);
@@ -929,8 +1122,8 @@ export class Game {
   private updateInteractions() {
     let aim: Interactable | null = null;
     let hint: string | null = null;
-    if (this.isLocked && !this.boardAim) {
-      if (this.seat) hint = STAND_HINT;
+    if (this.steering && !this.boardAim) {
+      if (this.seat) hint = this.touchMode ? STAND_ACTION : STAND_HINT;
       else if (!this.panelOpen) {
         const hit = aimedInteractable(
           this.interactables,
@@ -939,7 +1132,7 @@ export class Game {
           this.colliders,
         );
         aim = hit?.interactable ?? null;
-        hint = aim ? hintFor(aim) : null;
+        hint = aim ? (this.touchMode ? actionFor(aim) : hintFor(aim)) : null;
       }
     }
     this.interactAim = aim;

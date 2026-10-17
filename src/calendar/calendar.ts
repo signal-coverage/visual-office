@@ -7,6 +7,9 @@ export type Request = (url: string, init?: RequestInit) => Promise<Response>;
 export interface RoomCalendar {
   room: string;
   label: string;
+  /** The floor it is on, and what that is called, when the server says. */
+  floor?: string;
+  floorName?: string;
   configured: boolean;
   /** The feed could not be read lately, so this may be out of date. */
   stale: boolean;
@@ -45,6 +48,8 @@ const isRoom = (value: unknown): value is RoomCalendar => {
   return (
     typeof room.room === "string" &&
     typeof room.label === "string" &&
+    (room.floor === undefined || typeof room.floor === "string") &&
+    (room.floorName === undefined || typeof room.floorName === "string") &&
     typeof room.configured === "boolean" &&
     typeof room.stale === "boolean" &&
     (room.current === null || isEvent(room.current)) &&

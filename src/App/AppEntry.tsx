@@ -2,7 +2,12 @@ import { lazy, Suspense, useState } from "react";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { LoadFailed } from "../components/LoadFailed";
 import { LOAD_FAILED } from "../components/LoadFailed/consts";
-import { chooseView, readDevice } from "../lite/device";
+import {
+  chooseControls,
+  chooseView,
+  readDevice,
+  withView,
+} from "../lite/device";
 import { LITE_LOADING_TEXT } from "./consts";
 import * as styles from "./styles";
 import type { AppProps } from "./types";
@@ -19,9 +24,7 @@ const LiteOffice = lazy(() =>
 
 /** The same address, asking for the 3D office even where it is not the first choice. */
 function openOffice() {
-  const url = new URL(window.location.href);
-  url.searchParams.set("view", "office");
-  window.location.assign(url);
+  window.location.assign(withView(window.location.href, "office"));
 }
 
 /**
@@ -31,7 +34,11 @@ function openOffice() {
 export function AppEntry({ signedIn }: AppProps) {
   const [choice] = useState(() => {
     const device = readDevice();
-    return { ...chooseView(device), webgl: device.webgl };
+    return {
+      ...chooseView(device),
+      webgl: device.webgl,
+      controls: chooseControls(device),
+    };
   });
 
   return (
@@ -47,7 +54,7 @@ export function AppEntry({ signedIn }: AppProps) {
         fallback={<div className={styles.loading}>{LITE_LOADING_TEXT}</div>}
       >
         {choice.view === "office" ? (
-          <OfficeApp signedIn={signedIn} />
+          <OfficeApp signedIn={signedIn} controls={choice.controls} />
         ) : (
           <LiteOffice
             reason={choice.reason}
