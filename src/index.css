@@ -150,3 +150,29 @@ h3 {
   --success: oklch(0.78 0.15 150);
   --accent-soft-foreground: oklch(0.86 0.09 55);
 }
+
+/*
+ * Phones. A field under 16 px makes iOS zoom the page when it takes the focus,
+ * and the zoom stays: every field is 16 px on a device whose pointer is a finger.
+ */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/*
+ * The office on a phone is a game, not a page: nothing pulls to refresh,
+ * nothing flashes when it is touched, and the browser does not resize the text
+ * when the phone turns.
+ */
+html.touch-office,
+html.touch-office body {
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}

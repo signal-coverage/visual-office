@@ -10,10 +10,14 @@ export const status = (unsaved: boolean) =>
   cn("text-[13px]", unsaved ? "text-warning" : "text-muted");
 export const body = "flex min-h-0 flex-1";
 export const stage = "flex-1 overflow-auto p-3";
-export const canvas = (placing: boolean) =>
+export const canvas = (cursor: "default" | "copy" | "crosshair") =>
   cn(
     "block rounded-lg bg-white shadow-sm",
-    placing ? "cursor-copy" : "cursor-default",
+    cursor === "copy"
+      ? "cursor-copy"
+      : cursor === "crosshair"
+        ? "cursor-crosshair"
+        : "cursor-default",
   );
 export const side =
   "flex w-[280px] flex-col gap-[18px] overflow-y-auto border-l border-separator bg-surface p-3.5";

@@ -282,9 +282,14 @@ const HINT_VERBS: Readonly<
   inspect: (subject) => `Look at the ${subject.toLowerCase()}`,
 };
 
+/** What using a thing does, in a few words: the label of a button. */
+export function actionFor(interactable: Interactable): string {
+  return HINT_VERBS[interactable.kind](interactable.subject);
+}
+
 /** The line that tells what clicking does. */
 export function hintFor(interactable: Interactable): string {
-  return `Click or F · ${HINT_VERBS[interactable.kind](interactable.subject)}`;
+  return `Click or F · ${actionFor(interactable)}`;
 }
 
 /** What a plant is, by its variant. The first one is for any the table does not have. */

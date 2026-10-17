@@ -26,6 +26,7 @@ import {
   panelUsesMouse,
   type PanelContent,
 } from "../../shared/interactions.ts";
+import { restartRetryDelayMs } from "../../shared/restart.ts";
 import type { Roster } from "../../shared/roster.ts";
 import {
   alertFor,
@@ -40,6 +41,9 @@ import {
   showDesktopNotification,
 } from "../chat/desktop";
 import { playBeep } from "../chat/sound";
+import { withView } from "../lite/device";
+import { hintSeen, markHintSeen } from "../touch/hint";
+import { TouchInput } from "../touch/touchInput";
 import { withToken } from "../calendar/calendar";
 import { useRoomNow } from "../calendar/useRoomCalendar";
 import { CalendarBadge } from "../components/CalendarBadge";
@@ -52,8 +56,10 @@ import { EmoteBar } from "../components/EmoteBar";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { FloorBadge } from "../components/FloorBadge";
 import { GameMenu } from "../components/GameMenu";
+import { HudColumn } from "../components/HudColumn";
 import { InteractHint } from "../components/InteractHint";
 import { LoadFailed } from "../components/LoadFailed";
+import { LOAD_FAILED } from "../components/LoadFailed/consts";
 import { LobbyScreen } from "../components/LobbyScreen";
 import { ScreenShareBadge } from "../components/ScreenShareBadge";
 import { SelfView } from "../components/SelfView";
@@ -94,6 +100,7 @@ import {
   saveAppearance,
   saveName,
   showClickPrompt,
+  touchSceneCovered,
 } from "./helpers";
 import {
   DEFAULT_SETTINGS,
@@ -103,6 +110,19 @@ import {
 } from "./settings";
 import * as styles from "./styles";
 import type { AppProps, Phase, SignedInUser } from "./types";
+
+// Its own chunk: only a device walked with fingers ever downloads the touch controls
+const TouchControls = lazy(() =>
+  import("../components/TouchControls").then((module) => ({
+    default: module.TouchControls,
+  })),
+);
+
+/** Frees the mouse. A phone has no pointer lock at all, and then there is nothing to free. */
+function releaseMouse() {
+  if (typeof document.exitPointerLock === "function")
+    document.exitPointerLock();
+}
 
 // Its own chunk: only opened from the menu
 const CalendarView = lazy(() =>
@@ -125,9 +145,12 @@ const InteractionScreen = lazy(() =>
   })),
 );
 
-export function App({ signedIn }: AppProps) {
+export function App({ signedIn, controls = "mouse" }: AppProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
+  const touch = controls === "touch";
+  /** What fingers on the screen ask for, once there are touch controls; the game reads it every frame. */
+  const [touchInput] = useState(() => (touch ? new TouchInput() : null));
   const [urlName] = useState(nameFromUrl);
   const [savedName] = useState(loadSavedName);
   // First visit: a random look, so the menu starts with somebody rather than a blank
@@ -163,7 +186,12 @@ export function App({ signedIn }: AppProps) {
   const [voiceState, setVoiceState] = useState<VoiceState>("unavailable");
   const [micSteps, setMicSteps] = useState(0);
   const [roster, setRoster] = useState<Roster | null>(null);
-  const [showRoster, setShowRoster] = useState(true);
+  // On a phone the list of people is a button away: it would cover the scene
+  const [showRoster, setShowRoster] = useState(!touch);
+  const [seated, setSeated] = useState(false);
+  /** Counts the presses of the chat button of the touch controls: each one opens the chat. */
+  const [chatRequests, setChatRequests] = useState(0);
+  const [hintOpen, setHintOpen] = useState(() => touch && !hintSeen());
   /** What the player chose to show as doing (the server may show them as away or busy on top of it). */
   const [chosenStatus, setChosenStatus] = useState<Status>(DEFAULT_STATUS);
   const [emoteKeyHeld, setEmoteKeyHeld] = useState(false);
@@ -182,6 +210,9 @@ export function App({ signedIn }: AppProps) {
   );
   /** The room the player asked to travel to: the disconnection that follows is not an error. */
   const travelTo = useRef<string | null>(null);
+  /** After a server restart: which try at joining again this is, or null when the game is not waiting for the server to come back. */
+  const restartAttempt = useRef<number | null>(null);
+  const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** What the floor-change callbacks (made once, when joining) need to call now. */
   const floorChanged = useRef(signedIn?.onFloorChange);
   const [boardInk, setBoardInk] = useState<number | null>(null);
@@ -280,19 +311,30 @@ export function App({ signedIn }: AppProps) {
     [],
   );
 
+  // No scrolling, pull to refresh or tap highlight on a page that is a game
+  useEffect(() => {
+    if (!touch) return;
+    const root = document.documentElement;
+    root.classList.add("touch-office");
+    return () => root.classList.remove("touch-office");
+  }, [touch]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const game = new Game(canvas, {
       quality: latest.current.settings.quality,
       softwareRendering,
+      touch,
     });
+    game.setTouchSource(touchInput);
     gameRef.current = game;
     return () => {
       gameRef.current = null;
+      if (restartTimer.current) clearTimeout(restartTimer.current);
       game.dispose();
     };
-  }, [softwareRendering]);
+  }, [softwareRendering, touch, touchInput]);
 
   useEffect(() => {
     gameRef.current?.setQuality(settings.quality);
@@ -345,7 +387,11 @@ export function App({ signedIn }: AppProps) {
     () => getToken.current?.() ?? Promise.resolve(null),
     [],
   );
-  const roomNow = useRoomNow(phase === "online" ? zone : null, tokenOf);
+  const roomNow = useRoomNow(
+    phase === "online" ? zone : null,
+    floor?.id ?? COMMON_FLOOR_ID,
+    tokenOf,
+  );
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   /** The rooms and which of them the player may enter, asked again each time it may have changed. */
@@ -452,11 +498,11 @@ export function App({ signedIn }: AppProps) {
               onArea: setArea,
               onBoardAim: (aim) => setBoardInk(aim ? aim.ink : null),
               onInteractHint: setInteractHint,
+              onSeatedChange: setSeated,
               onInteractPanel: (next) => {
                 setPanel(next);
                 // A computer or a shelf is clicked and scrolled: the mouse is let go while it is open
-                if (next && panelUsesMouse(next.kind))
-                  document.exitPointerLock();
+                if (next && panelUsesMouse(next.kind)) releaseMouse();
               },
               onScreenShare: setScreenShare,
               onNotice: setNotice,
@@ -508,6 +554,21 @@ export function App({ signedIn }: AppProps) {
                   return;
                 }
                 // Travelling, a new layout, access taken away: straight into a room, with no first screen in between
+                if (next.kind === "rejoin" && next.delayMs !== undefined) {
+                  restartAttempt.current = 0;
+                  setReconnecting(true);
+                  restartTimer.current = setTimeout(
+                    () =>
+                      rejoin.current(
+                        playerName,
+                        appearance,
+                        next.floor,
+                        next.notice,
+                      ),
+                    next.delayMs,
+                  );
+                  return;
+                }
                 if (next.kind === "rejoin") {
                   rejoin.current(
                     playerName,
@@ -533,6 +594,7 @@ export function App({ signedIn }: AppProps) {
         )
         .then(() => {
           if (gameRef.current !== game) return;
+          restartAttempt.current = null;
           setPhase("online");
           if (inRoom?.notice) setNotice(inRoom.notice);
           game.relock();
@@ -540,6 +602,20 @@ export function App({ signedIn }: AppProps) {
         .catch((error) => {
           console.warn("Could not join the office room", error);
           if (gameRef.current !== game) return;
+          const attempt = restartAttempt.current;
+          const wait =
+            attempt === null ? null : restartRetryDelayMs(attempt + 1);
+          if (attempt !== null && wait !== null) {
+            restartAttempt.current = attempt + 1;
+            setReconnecting(true);
+            restartTimer.current = setTimeout(
+              () =>
+                rejoin.current(playerName, appearance, target, inRoom?.notice),
+              wait,
+            );
+            return;
+          }
+          restartAttempt.current = null;
           setMessage(messageForJoinError(error));
           setPhase("offline");
         });
@@ -570,7 +646,7 @@ export function App({ signedIn }: AppProps) {
     gameRef.current?.standUp();
     showMap(true);
     setMenuOpen(false);
-    document.exitPointerLock();
+    releaseMouse();
     loadFloors();
   };
   useEffect(() => {
@@ -587,10 +663,29 @@ export function App({ signedIn }: AppProps) {
   }, []);
   const openMenu = () => {
     gameRef.current?.closeInteraction();
-    gameRef.current?.standUp();
-    document.exitPointerLock();
+    // With a mouse, Esc frees it and that gets the player out of the seat; a button does not
+    if (!touch) gameRef.current?.standUp();
+    releaseMouse();
     setMenuOpen(true);
   };
+  const goLite = () => {
+    window.location.assign(withView(window.location.href, "lite"));
+  };
+  const dismissHint = () => {
+    markHintSeen();
+    setHintOpen(false);
+  };
+  // With the menu, the chat, a map or a computer on screen, fingers belong to them
+  const sceneCovered = touchSceneCovered({
+    menuOpen,
+    chatOpen: chatShown,
+    calendarOpen,
+    mapOpen: mapShown,
+    panelOpen: panel !== null && panelUsesMouse(panel.kind),
+  });
+  useEffect(() => {
+    touchInput?.setEnabled(phase === "online" && !sceneCovered);
+  }, [touchInput, phase, sceneCovered]);
   /** A new look: seen by everybody, kept on the server (and on this browser, for when there is no sign-in). */
   const changeLook = (next: Appearance) => {
     setLook(next);
@@ -639,32 +734,53 @@ export function App({ signedIn }: AppProps) {
   };
   const leaveOffice = () => {
     leaving.current = true;
+    restartAttempt.current = null;
+    if (restartTimer.current) clearTimeout(restartTimer.current);
     setMenuOpen(false);
     gameRef.current?.leave();
   };
 
   return (
     <>
-      <canvas ref={canvasRef} style={styles.canvas} />
+      <canvas
+        ref={canvasRef}
+        style={touch ? styles.touchCanvas : styles.canvas}
+      />
       {showDebug && <DebugOverlay read={readDiagnostics} />}
       {softwareRendering && (
-        <div className={styles.gpuWarning} role="alert">
+        <div
+          className={touch ? styles.touchGpuWarning : styles.gpuWarning}
+          role="alert"
+        >
           {SOFTWARE_RENDERING_MESSAGE}
         </div>
       )}
 
       {phase === "online" ? (
         <>
-          <div className={styles.status}>
-            <StatusDot status={shownStatus} />
-            {name}
-          </div>
+          <HudColumn touch={touch}>
+            <div className={styles.status}>
+              <StatusDot status={shownStatus} />
+              {name}
+            </div>
+            <FloorBadge
+              name={canTravel(floors) ? (floor?.name ?? null) : null}
+            />
+            <ZoneIndicator label={zone} area={area} />
+            <CalendarBadge text={roomNow} />
+            <ScreenShareBadge info={screenShare} />
+            {touch && showRoster && <UserList roster={roster} />}
+            <SelfView element={selfView} touch={touch} />
+          </HudColumn>
           {reconnecting && (
-            <div className={styles.banner} role="status">
+            <div
+              className={touch ? styles.touchBanner : styles.banner}
+              role="status"
+            >
               {RECONNECTING_MESSAGE}
             </div>
           )}
-          {settings.showHints && (
+          {settings.showHints && !touch && (
             <div className={styles.hint}>
               {[...HUD_HINTS, ...(canTravel(floors) ? [MAP_HINT] : [])].map(
                 ([key, action]) => (
@@ -676,28 +792,28 @@ export function App({ signedIn }: AppProps) {
               )}
             </div>
           )}
-          <Button
-            variant="ghost"
-            className={styles.menuButton}
-            onPress={openMenu}
-          >
-            Menu (Esc)
-          </Button>
-          <VoiceIndicator
-            state={voiceState}
-            cameraOn={cameraOn}
-            micSteps={micSteps}
-            onToggle={() => gameRef.current?.toggleVoice()}
-          />
-          <FloorBadge name={canTravel(floors) ? (floor?.name ?? null) : null} />
-          <ZoneIndicator label={zone} area={area} />
-          <CalendarBadge text={roomNow} />
+          {!touch && (
+            <>
+              <Button
+                variant="ghost"
+                className={styles.menuButton}
+                onPress={openMenu}
+              >
+                Menu (Esc)
+              </Button>
+              <VoiceIndicator
+                state={voiceState}
+                cameraOn={cameraOn}
+                micSteps={micSteps}
+                onToggle={() => gameRef.current?.toggleVoice()}
+              />
+            </>
+          )}
           <ClosingBanner key={closingIn ?? "none"} seconds={closingIn} />
-          <ScreenShareBadge info={screenShare} />
-          <Toast text={notice} />
-          <Toast text={alert} slot="alert" />
+          <Toast text={notice} touch={touch} />
+          <Toast text={alert} slot="alert" touch={touch} />
           <BoardHint ink={boardInk} />
-          <InteractHint text={interactHint} />
+          {!touch && <InteractHint text={interactHint} />}
           {panel && (
             <ErrorBoundary fallback={null}>
               <Suspense fallback={null}>
@@ -710,6 +826,7 @@ export function App({ signedIn }: AppProps) {
                   getToken={tokenOf}
                   canEdit={!!signedIn?.onManageContent}
                   onClose={closePanel}
+                  touch={touch}
                 />
               </Suspense>
             </ErrorBoundary>
@@ -723,18 +840,56 @@ export function App({ signedIn }: AppProps) {
               calendarOpen,
               mapOpen: mapShown,
               panelOpen: panel !== null && panelUsesMouse(panel.kind),
+              touch,
             })}
           />
-          <EmoteBar shown={emoteKeyHeld} />
-          {showRoster && <UserList roster={roster} />}
-          <SelfView element={selfView} />
+          {!touch && <EmoteBar shown={emoteKeyHeld} />}
+          {!touch && showRoster && <UserList roster={roster} />}
+          {touchInput && (
+            <ErrorBoundary
+              fallback={
+                <LoadFailed
+                  closeLabel={LOAD_FAILED.reload}
+                  onClose={() => window.location.reload()}
+                />
+              }
+            >
+              <Suspense fallback={null}>
+                <TouchControls
+                  input={touchInput}
+                  covered={sceneCovered}
+                  voice={voiceState}
+                  micSteps={micSteps}
+                  cameraOn={cameraOn}
+                  seated={seated}
+                  action={interactHint}
+                  canTravel={canTravel(floors)}
+                  peopleShown={showRoster}
+                  unread={unread}
+                  hint={hintOpen}
+                  onDismissHint={dismissHint}
+                  onMenu={openMenu}
+                  onChat={() => setChatRequests((n) => n + 1)}
+                  onVoice={() => gameRef.current?.toggleVoice()}
+                  onCamera={() => gameRef.current?.toggleCamera()}
+                  onMap={openMap}
+                  onPeople={() => setShowRoster((shown) => !shown)}
+                  onKnock={() => gameRef.current?.knock()}
+                  onEmote={(emote) => gameRef.current?.emote(emote)}
+                  onUse={() => gameRef.current?.useOrStand()}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          )}
           <ChatPanel
             messages={messages}
             people={people}
             unread={unread}
             onSend={sendChat}
-            onOpen={() => document.exitPointerLock()}
+            onOpen={releaseMouse}
             onClose={() => gameRef.current?.relock()}
+            touch={touch}
+            openRequest={chatRequests}
             onOpenChange={(open) => {
               chatOpen.current = open;
               setChatShown(open);
@@ -753,6 +908,8 @@ export function App({ signedIn }: AppProps) {
               onKnock={knock}
               onOpenCalendar={() => setCalendarOpen(true)}
               onToggleDesktopNotifications={toggleDesktopNotifications}
+              touch={touch}
+              onLite={touch ? goLite : undefined}
               onResume={resume}
               onChangeLook={changeLook}
               onChangeSettings={changeSettings}
@@ -824,11 +981,13 @@ export function App({ signedIn }: AppProps) {
             onOpenActivity={signedIn?.onOpenActivity}
             onOpenCalendars={signedIn?.onOpenCalendars}
             onManageRooms={signedIn?.onManageRooms}
+            onManageGroups={signedIn?.onManageGroups}
             onManageContent={signedIn?.onManageContent}
             roomName={floor && floor.id !== COMMON_FLOOR_ID ? floor.name : null}
             initialAppearance={look}
             message={message}
             onJoin={join}
+            touch={touch}
           />
         )
       )}

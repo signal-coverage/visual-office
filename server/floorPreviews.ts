@@ -3,6 +3,7 @@ import type { Layout } from "../shared/layout.ts";
 import { OFFICE_FURNITURE, OFFICE_MODELS } from "../shared/officeData.ts";
 import type { AuthResult } from "./authenticate.ts";
 import type { AdminReply } from "./floorAdmin.ts";
+import { isArchived } from "./floorArchive.ts";
 import type { FloorStore } from "./floorStore.ts";
 import type { LayoutStore } from "./layoutStore.ts";
 
@@ -75,7 +76,18 @@ export function createFloorPreviews(deps: FloorPreviewsDeps) {
         const { status, error } = REFUSALS[who.reason];
         return { status, body: { error, reason: who.reason } };
       }
-      return { status: 200, body: { previews: await previews() } };
+      // Archived rooms are hidden at once, though their plans stay cached for when they come back
+      const active = new Set(
+        (await deps.floors.list())
+          .filter((floor) => !isArchived(floor))
+          .map((floor) => floor.id),
+      );
+      return {
+        status: 200,
+        body: {
+          previews: (await previews()).filter((plan) => active.has(plan.id)),
+        },
+      };
     } catch (error) {
       console.error("The room plans could not reach the database", error);
       return {

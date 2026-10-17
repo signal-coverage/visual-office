@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { MemoryFloorStore } from "./floorStore.ts";
+import { MemoryGroupStore } from "./groupStore.ts";
 import {
   closeFloor,
+  floorArchived,
   floorDirectory,
   floorRooms,
+  groupDirectory,
   knownFloorIds,
   recheckAccess,
   refreshFloor,
   registerModeratedRoom,
   registerRoom,
   setFloorStore,
+  setGroupStore,
 } from "./floors.ts";
 
 function fakeRoom() {
@@ -222,6 +226,67 @@ describe("recheckAccess", () => {
     expect(() => recheckAccess("access-mixed", "user_ana")).not.toThrow();
     expect(heard).toEqual(["user_ana"]);
     for (const forget of forgets) forget();
+  });
+});
+
+describe("floorArchived", () => {
+  const roomThat = (heard: string[]) => ({
+    removeUser: () => 0,
+    setVoiceMuted: async () => 0,
+    floorArchived: () => {
+      heard.push("archived");
+    },
+  });
+
+  it("tells every room of the floor that it was archived, and no other", () => {
+    const a: string[] = [];
+    const b: string[] = [];
+    const other: string[] = [];
+    const forgets = [
+      registerModeratedRoom("archived-floor", roomThat(a)),
+      registerModeratedRoom("archived-floor", roomThat(b)),
+      registerModeratedRoom("archived-other", roomThat(other)),
+    ];
+    floorArchived("archived-floor");
+    expect([a, b, other]).toEqual([["archived"], ["archived"], []]);
+    for (const forget of forgets) forget();
+  });
+
+  it("goes on telling the rest when one room fails, and copes with rooms that cannot", () => {
+    const heard: string[] = [];
+    const forgets = [
+      registerModeratedRoom("archived-mixed", {
+        removeUser: () => 0,
+        setVoiceMuted: async () => 0,
+        floorArchived: () => {
+          throw new Error("room is closing");
+        },
+      }),
+      registerModeratedRoom("archived-mixed", {
+        removeUser: () => 0,
+        setVoiceMuted: async () => 0,
+      }),
+      registerModeratedRoom("archived-mixed", roomThat(heard)),
+    ];
+    expect(() => floorArchived("archived-mixed")).not.toThrow();
+    expect(heard).toEqual(["archived"]);
+    for (const forget of forgets) forget();
+  });
+});
+
+describe("the groups of the server", () => {
+  it("are the stored ones, asked for each time", async () => {
+    const floors = new MemoryFloorStore(() => 1);
+    const store = new MemoryGroupStore(() => 1, floors);
+    setGroupStore(store);
+    expect(await groupDirectory.list()).toEqual([]);
+    await store.create({ id: "hr", name: "HR" });
+    await store.setMember("hr", "user_ana", true);
+    expect(
+      (await groupDirectory.groupsOf("user_ana")).map((g) => g.id),
+    ).toEqual(["hr"]);
+    expect((await groupDirectory.get("hr"))?.name).toBe("HR");
+    setGroupStore(new MemoryGroupStore(() => 1, floors));
   });
 });
 

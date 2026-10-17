@@ -19,7 +19,7 @@ import {
   STATUS_LABELS,
   STATUSES,
 } from "../../../shared/presence.ts";
-import { CONTROLS } from "../../App/controls";
+import { CONTROLS, TOUCH_CONTROLS } from "../../App/controls";
 import { QUALITY_CHOICES, sanitizeQuality } from "../../game/quality";
 import { cn } from "../../lib/cn";
 import { desktopPermission, desktopSupported } from "../../chat/desktop";
@@ -71,6 +71,8 @@ export function GameMenu({
   onChangeSettings,
   onLeave,
   onSignOut,
+  touch = false,
+  onLite,
   rooms,
   moderation,
 }: GameMenuProps) {
@@ -159,7 +161,7 @@ export function GameMenu({
                     className={styles.item}
                     onPress={onKnock}
                   >
-                    {ITEMS.knock}
+                    {touch ? ITEMS.knockTouch : ITEMS.knock}
                   </Button>
                   {rooms && (
                     <Button
@@ -168,7 +170,7 @@ export function GameMenu({
                       className={styles.item}
                       onPress={rooms.onOpenMap}
                     >
-                      {ITEMS.map}
+                      {touch ? ITEMS.mapTouch : ITEMS.map}
                     </Button>
                   )}
                   {rooms && (
@@ -197,6 +199,16 @@ export function GameMenu({
                   >
                     {ITEMS.controls}
                   </Button>
+                  {onLite && (
+                    <Button
+                      fullWidth
+                      variant="secondary"
+                      className={styles.item}
+                      onPress={onLite}
+                    >
+                      {ITEMS.lite}
+                    </Button>
+                  )}
                   <Button
                     fullWidth
                     variant="secondary"
@@ -368,7 +380,7 @@ export function GameMenu({
               {heading(CONTROLS_TITLE)}
               <Modal.Body>
                 <ul className={styles.controls}>
-                  {CONTROLS.map(([keys, action]) => (
+                  {(touch ? TOUCH_CONTROLS : CONTROLS).map(([keys, action]) => (
                     <li key={keys} className={styles.controlRow}>
                       <Kbd className={styles.key}>{keys}</Kbd>
                       <span>{action}</span>
@@ -397,7 +409,9 @@ export function GameMenu({
                     })
                   }
                 >
-                  <Label>{OPTIONS.sensitivity}</Label>
+                  <Label>
+                    {touch ? OPTIONS.touchSensitivity : OPTIONS.sensitivity}
+                  </Label>
                   <Slider.Output>
                     {({ state }) => `${state.values[0].toFixed(1)}×`}
                   </Slider.Output>
@@ -428,20 +442,26 @@ export function GameMenu({
                     </Radio>
                   ))}
                 </RadioGroup>
-                <p className={styles.intro}>{OPTIONS.qualityNote}</p>
-                <Checkbox
-                  isSelected={settings.showHints}
-                  onChange={(showHints) =>
-                    onChangeSettings({ ...settings, showHints })
-                  }
-                >
-                  <Checkbox.Content>
-                    <Checkbox.Control>
-                      <Checkbox.Indicator />
-                    </Checkbox.Control>
-                    {OPTIONS.hints}
-                  </Checkbox.Content>
-                </Checkbox>
+                <p className={styles.intro}>
+                  {touch
+                    ? `${OPTIONS.touchQualityNote} ${OPTIONS.qualityNote}`
+                    : OPTIONS.qualityNote}
+                </p>
+                {!touch && (
+                  <Checkbox
+                    isSelected={settings.showHints}
+                    onChange={(showHints) =>
+                      onChangeSettings({ ...settings, showHints })
+                    }
+                  >
+                    <Checkbox.Content>
+                      <Checkbox.Control>
+                        <Checkbox.Indicator />
+                      </Checkbox.Control>
+                      {OPTIONS.hints}
+                    </Checkbox.Content>
+                  </Checkbox>
+                )}
                 <Checkbox
                   isSelected={settings.notificationSound}
                   onChange={(notificationSound) =>

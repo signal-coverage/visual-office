@@ -57,6 +57,11 @@ const ContentAdmin = lazy(() =>
 const RoomsAdmin = lazy(() =>
   import("../RoomsAdmin").then((module) => ({ default: module.RoomsAdmin })),
 );
+const GroupsAdmin = lazy(() =>
+  import("../GroupsAdmin").then((module) => ({
+    default: module.GroupsAdmin,
+  })),
+);
 const PeopleAdmin = lazy(() =>
   import("../PeopleAdmin").then((module) => ({ default: module.PeopleAdmin })),
 );
@@ -79,6 +84,7 @@ function MemberApp({ member }: { member: Member }) {
   const [activityOpen, setActivityOpen] = useState(false);
   const [calendarsOpen, setCalendarsOpen] = useState(false);
   const [roomsOpen, setRoomsOpen] = useState(false);
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const [contentOpen, setContentOpen] = useState(false);
   // The editor of the lobby is the one of the room the player was last in (the common one at first)
   const [floor, setFloor] = useState(
@@ -132,6 +138,9 @@ function MemberApp({ member }: { member: Member }) {
             : undefined,
           onManageRooms: member.user.isAdmin
             ? () => setRoomsOpen(true)
+            : undefined,
+          onManageGroups: member.user.isAdmin
+            ? () => setGroupsOpen(true)
             : undefined,
           // Admins, and the head of the room they are in: the server says which rooms each may edit
           onManageContent:
@@ -221,6 +230,18 @@ function MemberApp({ member }: { member: Member }) {
             <RoomsAdmin
               getToken={getToken}
               onClose={() => setRoomsOpen(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {groupsOpen && (
+        <ErrorBoundary
+          fallback={<LoadFailed onClose={() => setGroupsOpen(false)} />}
+        >
+          <Suspense fallback={null}>
+            <GroupsAdmin
+              getToken={getToken}
+              onClose={() => setGroupsOpen(false)}
             />
           </Suspense>
         </ErrorBoundary>

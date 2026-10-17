@@ -1,25 +1,41 @@
 import {
+  DEFAULT_TEMPLATE_ID,
+  FLOOR_TEMPLATES,
+  sanitizeTemplateId,
+  templateById,
+} from "../shared/floorTemplates.ts";
+import {
   sanitizeFloorId,
   sanitizeFloorName,
   slugFromName,
 } from "../shared/floors.ts";
 import { auditActor, type AuditRecorder } from "./audit.ts";
 import type { AdminReply, AdminRequest } from "./floorAdmin.ts";
+import { archiveRefusal, isArchived } from "./floorArchive.ts";
 import type { FloorStore } from "./floorStore.ts";
+import type { LayoutStore } from "./layoutStore.ts";
 import type { UserStore } from "./userStore.ts";
 
 const MAX_USER_ID_LENGTH = 128;
 const FLOORS = "/admin/floors";
 const ONE_FLOOR = /^\/admin\/floors\/([^/]+)$/;
 const ACCESS = /^\/admin\/floors\/([^/]+)\/access$/;
+const ARCHIVE = /^\/admin\/floors\/([^/]+)\/(archive|unarchive)$/;
+
+/** Who a template's first version is attributed to. */
+const TEMPLATE_AUTHOR = "template";
 
 export interface RoomsAdminDeps {
   floors: FloorStore;
+  /** Where the first layout of a room made from a template goes. */
+  layouts: Pick<LayoutStore, "publish">;
   users: Pick<UserStore, "get">;
   /** Where making, renaming and giving entries are noted: who did it. */
   audit?: AuditRecorder;
   /** Somebody's entry for a floor was taken away: the people inside may have to leave. */
   onAccessChanged?: (floor: string, userId: string) => void;
+  /** A room was archived: the people inside have to leave. */
+  onArchived?: (floor: string) => void;
 }
 
 const bad = (error: string): AdminReply => ({ status: 400, body: { error } });
@@ -35,6 +51,41 @@ function record(body: unknown): Record<string, unknown> {
     : {};
 }
 
+/** Archives a room (hides it and sends the people inside to the common room) or brings it back. Doing what is already done changes and notes nothing. */
+async function archiveOrBring(
+  actor: NonNullable<AdminRequest["actor"]>,
+  id: string,
+  archive: boolean,
+  deps: RoomsAdminDeps,
+): Promise<AdminReply> {
+  const floor = await deps.floors.get(id);
+  if (!floor) return { status: 404, body: { error: "No such floor." } };
+  if (isArchived(floor) === archive) return { status: 200, body: { floor } };
+  if (archive) {
+    const refusal = archiveRefusal(floor, await deps.floors.list());
+    if (refusal) return { status: 409, body: { error: refusal } };
+  }
+  const changed = archive
+    ? await deps.floors.archive(id)
+    : await deps.floors.unarchive(id);
+  if (!changed) return { status: 404, body: { error: "No such floor." } };
+  await deps.audit?.({
+    ...auditActor(actor),
+    action: archive ? "floor.archive" : "floor.unarchive",
+    floor: id,
+    detail: { name: changed.name },
+  });
+  if (archive) {
+    try {
+      deps.onArchived?.(id);
+    } catch (error) {
+      // The room is archived whatever the rooms make of the news: nobody can join it again
+      console.error("Could not tell the rooms about the archive:", error);
+    }
+  }
+  return { status: 200, body: { floor: changed } };
+}
+
 async function route(
   request: AdminRequest,
   deps: RoomsAdminDeps,
@@ -42,9 +93,11 @@ async function route(
   const list = request.path === FLOORS;
   const one = ONE_FLOOR.exec(request.path);
   const access = ACCESS.exec(request.path);
+  const archiving = ARCHIVE.exec(request.path);
   // Reading one floor is the lock API's job, and so is asking what the caller may edit
   if (
     !list &&
+    !archiving &&
     !(one && request.method === "POST") &&
     !(access && request.method === "POST")
   )
@@ -57,7 +110,18 @@ async function route(
 
   if (list) {
     if (request.method === "GET")
-      return { status: 200, body: { floors: await deps.floors.list() } };
+      return {
+        status: 200,
+        body: {
+          floors: await deps.floors.list(),
+          // Only what a person needs to choose one: the furniture and the shell stay on the server
+          templates: FLOOR_TEMPLATES.map(({ id, name, description }) => ({
+            id,
+            name,
+            description,
+          })),
+        },
+      };
     if (request.method !== "POST")
       return { status: 405, body: { error: "Use GET or POST." } };
 
@@ -73,6 +137,12 @@ async function route(
           ? "Could not make an id from that name: give one (id), with lowercase letters, digits and hyphens."
           : "That id is not allowed: use lowercase letters, digits and single hyphens, up to 32 characters.",
       );
+    const templateId = sanitizeTemplateId(body.template);
+    const template = templateId ? templateById(templateId) : undefined;
+    if (!templateId || !template)
+      return bad(
+        `Choose one of the room templates: ${FLOOR_TEMPLATES.map((t) => t.id).join(", ")}.`,
+      );
     const floor = await deps.floors.create({ id, name });
     if (!floor)
       return { status: 409, body: { error: "There is a room with that id." } };
@@ -80,9 +150,44 @@ async function route(
       ...auditActor(actor),
       action: "floor.create",
       floor: floor.id,
-      detail: { name: floor.name },
+      detail: { name: floor.name, template: templateId },
     });
-    return { status: 201, body: { floor } };
+    // The default template is the office a room had before there were templates: nothing to store, the room just has it
+    if (templateId !== DEFAULT_TEMPLATE_ID) {
+      try {
+        await deps.layouts.publish(
+          floor.id,
+          {
+            furniture: structuredClone(template.furniture),
+            models: structuredClone(template.models),
+            shell: structuredClone(template.shell),
+          },
+          TEMPLATE_AUTHOR,
+        );
+      } catch (error) {
+        console.error("Could not apply the template of a new room:", error);
+        return {
+          status: 500,
+          body: {
+            error:
+              "The room was made, but its template could not be applied: it has the default office until it is edited.",
+            floor,
+          },
+        };
+      }
+    }
+    return { status: 201, body: { floor, template: templateId } };
+  }
+
+  if (archiving) {
+    if (request.method !== "POST")
+      return { status: 405, body: { error: "Use POST." } };
+    return archiveOrBring(
+      actor,
+      archiving[1],
+      archiving[2] === "archive",
+      deps,
+    );
   }
 
   if (one) {

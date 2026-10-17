@@ -19,3 +19,14 @@ export const CONTROLS: ReadonlyArray<readonly [keys: string, action: string]> =
     ["Tab", "People list"],
     ["Esc", "Menu"],
   ];
+
+/** The same, for a screen with fingers instead of a keyboard and a mouse. */
+export const TOUCH_CONTROLS: ReadonlyArray<
+  readonly [gesture: string, action: string]
+> = [
+  ["Left thumb", "Move; push it to the edge to run"],
+  ["Right thumb", "Look around"],
+  ["Tap", "Use what you tap (sit, read, look); the big button does it too"],
+  ["Stand up", "The big button while sitting, or push the joystick"],
+  ["Buttons", "Menu, chat, voice, camera, people, rooms, emotes, knock"],
+];

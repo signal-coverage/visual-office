@@ -1,5 +1,9 @@
 import type { CalendarEvent } from "../shared/calendar.ts";
-import type { CalendarService } from "./calendarService.ts";
+import {
+  resolveRooms,
+  type CalendarService,
+  type RoomSource,
+} from "./calendarService.ts";
 import type { AdminReply } from "./floorAdmin.ts";
 
 const HOUR = 3_600_000;
@@ -10,7 +14,7 @@ const MAX_DAY = 28 * HOUR;
 
 export interface CalendarRoomsDeps {
   calendar: CalendarService;
-  rooms: ReadonlyArray<{ id: string; label: string }>;
+  rooms: RoomSource;
   now?: () => number;
 }
 
@@ -62,18 +66,23 @@ async function route(
 
   const day = { now, dayStart, dayEnd, date: query.date };
   const rooms = await Promise.all(
-    deps.rooms.map(async ({ id, label }) => {
-      const schedule = await deps.calendar.scheduleOf(id, day);
-      return {
-        room: id,
-        label,
-        configured: schedule.configured,
-        stale: schedule.stale,
-        current: schedule.current && shown(schedule.current),
-        next: schedule.next && shown(schedule.next),
-        today: schedule.today.map(shown),
-      };
-    }),
+    (await resolveRooms(deps.rooms)).map(
+      async ({ id, label, floor, floorName }) => {
+        const schedule = await deps.calendar.scheduleOf(id, day);
+        return {
+          room: id,
+          label,
+          ...(floor !== undefined && floorName !== undefined
+            ? { floor, floorName }
+            : {}),
+          configured: schedule.configured,
+          stale: schedule.stale,
+          current: schedule.current && shown(schedule.current),
+          next: schedule.next && shown(schedule.next),
+          today: schedule.today.map(shown),
+        };
+      },
+    ),
   );
   return { status: 200, body: { rooms } };
 }

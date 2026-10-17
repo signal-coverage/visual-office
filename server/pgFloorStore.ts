@@ -6,15 +6,17 @@ interface Row {
   name: string;
   common: boolean;
   created_at: string | number | bigint;
+  archived_at: string | number | bigint | null;
 }
 
-const COLUMNS = `id, name, common, created_at`;
+const COLUMNS = `id, name, common, created_at, archived_at`;
 
 const recordOf = (row: Row): FloorRecord => ({
   id: row.id,
   name: row.name,
   common: row.common,
   createdAt: Number(row.created_at),
+  ...(row.archived_at === null ? {} : { archivedAt: Number(row.archived_at) }),
 });
 
 /** The floors and who has an entry for each, kept in Postgres. */
@@ -57,6 +59,23 @@ export class PgFloorStore implements FloorStore {
     const { rows } = await this.db.query<Row>(
       `UPDATE floors SET name = $2 WHERE id = $1 RETURNING ${COLUMNS}`,
       [id, name],
+    );
+    return rows[0] ? recordOf(rows[0]) : null;
+  }
+
+  async archive(id: string) {
+    const { rows } = await this.db.query<Row>(
+      `UPDATE floors SET archived_at = COALESCE(archived_at, $2)
+       WHERE id = $1 RETURNING ${COLUMNS}`,
+      [id, this.now()],
+    );
+    return rows[0] ? recordOf(rows[0]) : null;
+  }
+
+  async unarchive(id: string) {
+    const { rows } = await this.db.query<Row>(
+      `UPDATE floors SET archived_at = NULL WHERE id = $1 RETURNING ${COLUMNS}`,
+      [id],
     );
     return rows[0] ? recordOf(rows[0]) : null;
   }

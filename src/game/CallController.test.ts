@@ -27,7 +27,12 @@ const fakes = vi.hoisted(() => {
     videoWanted: Map<string, boolean>;
     level: number;
   }
-  return { chats: [] as FakeChat[] };
+  return {
+    chats: [] as FakeChat[],
+    nextJoinError: null as Error | null,
+    /** The call library reports the drop before it rejects the join, as livekit-client does. */
+    dropBeforeJoinError: false,
+  };
 });
 
 vi.mock("./VoiceChat", () => ({
@@ -58,6 +63,11 @@ vi.mock("./VoiceChat", () => ({
     async join(credentials: VoiceCredentials, options: { mic: boolean }) {
       this.state.credentials = credentials;
       this.state.options = options;
+      const error = fakes.nextJoinError;
+      fakes.nextJoinError = null;
+      if (error && fakes.dropBeforeJoinError)
+        this.state.events?.onDisconnected();
+      if (error) throw error;
     }
     async setCameraEnabled(on: boolean) {
       this.state.cameraRequests.push(on);
@@ -120,6 +130,73 @@ function tune(call: InstanceType<typeof CallController>, distance: number) {
 
 beforeEach(() => {
   fakes.chats.length = 0;
+  fakes.nextJoinError = null;
+  fakes.dropBeforeJoinError = false;
+});
+
+describe("CallController, a call that cannot be joined", () => {
+  const refused = () => {
+    const error = new Error("Permission denied");
+    error.name = "NotAllowedError";
+    return error;
+  };
+
+  it("goes to the error state and says the microphone is blocked when the browser refuses it", async () => {
+    const { call, states, notices } = setup();
+    call.setCredentials(open);
+    fakes.nextJoinError = refused();
+    call.toggleMic();
+    await flush();
+    expect(states.at(-1)).toBe("error");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatch(/microphone is blocked/i);
+  });
+
+  it("lets the player try again from the error state, and joins when the browser allows it", async () => {
+    const { call, states, notices } = setup();
+    call.setCredentials(open);
+    fakes.nextJoinError = refused();
+    call.toggleMic();
+    await flush();
+    call.toggleMic();
+    await flush();
+    expect(states.at(-1)).toBe("live");
+    expect(notices).toHaveLength(1);
+  });
+
+  it("says why even when the call library reports the drop before it rejects the join", async () => {
+    const { call, states, notices } = setup();
+    call.setCredentials(open);
+    fakes.nextJoinError = refused();
+    fakes.dropBeforeJoinError = true;
+    call.toggleMic();
+    await flush();
+    expect(states.at(-1)).toBe("error");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatch(/microphone is blocked/i);
+  });
+
+  it("says nothing about a failed attempt that a newer one already replaced", async () => {
+    const { call, states, notices } = setup();
+    call.setCredentials(open);
+    fakes.nextJoinError = refused();
+    fakes.dropBeforeJoinError = true;
+    call.toggleMic();
+    call.toggleMic();
+    await flush();
+    await flush();
+    expect(states.at(-1)).not.toBe("error");
+    expect(notices.length).toBeLessThanOrEqual(1);
+  });
+
+  it("asks for the microphone only when the player presses, not when the credentials arrive", async () => {
+    const { call, states } = setup();
+    fakes.chats.length = 0;
+    call.setCredentials(open);
+    await flush();
+    expect(fakes.chats).toHaveLength(0);
+    expect(states).toEqual(["idle"]);
+  });
 });
 
 describe("CallController, changing rooms", () => {
@@ -527,6 +604,24 @@ describe("CallController, a room with a screen", () => {
     const { call, notices } = setup();
     call.setCredentials(open);
     call.toggleMic(); // connecting, not yet awaited
+    call.enteredZone("meeting");
+    expect(notices).toEqual([]);
+  });
+
+  it("knows the rooms with a screen of the floor it is told about, not the main office's", () => {
+    const { call, notices } = setup();
+    call.setCredentials(open);
+    call.setScreenZones(["room-a", "room-b"]);
+    call.enteredZone("room-b");
+    expect(notices).toHaveLength(1);
+    call.enteredZone("meeting");
+    expect(notices).toHaveLength(1);
+  });
+
+  it("has no room with a screen on a floor that has none", () => {
+    const { call, notices } = setup();
+    call.setCredentials(open);
+    call.setScreenZones([]);
     call.enteredZone("meeting");
     expect(notices).toEqual([]);
   });

@@ -95,6 +95,62 @@ describe.each([
     expect(await store.rename("nope", "X")).toBeNull();
   });
 
+  it("archives a floor and brings it back, keeping everything else", async () => {
+    let now = 1000;
+    const store = await setup(() => now);
+    await store.create({ id: "hr", name: "Human Resources" });
+    await store.grant("hr", "user_ana");
+    now = 5000;
+    expect(await store.archive("hr")).toEqual({
+      id: "hr",
+      name: "Human Resources",
+      common: false,
+      createdAt: 1000,
+      archivedAt: 5000,
+    });
+    expect(await store.get("hr")).toMatchObject({ archivedAt: 5000 });
+    expect(
+      (await store.list()).find((floor) => floor.id === "hr"),
+    ).toMatchObject({ archivedAt: 5000 });
+    // Nothing else is lost: the entry is still there for when it comes back
+    expect(await store.floorsOf("user_ana")).toEqual(["hr"]);
+    const back = await store.unarchive("hr");
+    expect(back).toEqual({
+      id: "hr",
+      name: "Human Resources",
+      common: false,
+      createdAt: 1000,
+    });
+    expect(back).not.toHaveProperty("archivedAt");
+    expect(await store.floorsOf("user_ana")).toEqual(["hr"]);
+  });
+
+  it("keeps the first moment of an archive when it is archived again", async () => {
+    let now = 1000;
+    const store = await setup(() => now);
+    await store.create({ id: "hr", name: "HR" });
+    now = 2000;
+    await store.archive("hr");
+    now = 3000;
+    expect((await store.archive("hr"))?.archivedAt).toBe(2000);
+  });
+
+  it("cannot archive or bring back a floor that does not exist", async () => {
+    const store = await setup(() => 0);
+    expect(await store.archive("nope")).toBeNull();
+    expect(await store.unarchive("nope")).toBeNull();
+  });
+
+  it("renames an archived floor and it stays archived", async () => {
+    const store = await setup(() => 1000);
+    await store.create({ id: "hr", name: "HR" });
+    await store.archive("hr");
+    expect(await store.rename("hr", "People")).toMatchObject({
+      name: "People",
+      archivedAt: 1000,
+    });
+  });
+
   it("gives and takes away an entry for a floor", async () => {
     const store = await setup(() => 1000);
     await store.create({ id: "hr", name: "Human Resources" });
@@ -144,6 +200,29 @@ describe.each([
 });
 
 describe("the floors migrations", () => {
+  it("add the archive column once, empty for the floors there were", async () => {
+    const db = new PGlite();
+    databases.push(db);
+    await migrate(db);
+    await migrate(db);
+    const { rows } = await db.query<{ archived_at: unknown }>(
+      `SELECT archived_at FROM floors`,
+    );
+    expect(rows).toEqual([{ archived_at: null }]);
+  });
+
+  it("run again after the archive step was forgotten, without failing", async () => {
+    const db = new PGlite();
+    databases.push(db);
+    await migrate(db);
+    await db.query(
+      `DELETE FROM schema_migrations WHERE id = '015_floor_archived_at'`,
+    );
+    await migrate(db);
+    const { rows } = await db.query(`SELECT id FROM floors`);
+    expect(rows).toHaveLength(1);
+  });
+
   it("run twice change nothing, and the main office is seeded once", async () => {
     const db = new PGlite();
     databases.push(db);

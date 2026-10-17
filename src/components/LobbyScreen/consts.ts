@@ -19,6 +19,7 @@ export const BUTTON_LABEL: Record<LobbyPhase, string> = {
 
 export const EDIT_FLOOR_LABEL = "Edit this floor";
 export const ROOMS_LABEL = "Rooms";
+export const GROUPS_LABEL = "Groups";
 export const enteringRoom = (name: string) => `You will enter: ${name}`;
 export const MANAGE_PEOPLE_LABEL = "Manage people";
 export const INVITE_PEOPLE_LABEL = "Invite people";
@@ -30,6 +31,13 @@ export const NAME_LOCKED_HINT = "Your name comes from your account.";
 
 /** The few keys the lobby reminds you of; the menu lists them all. */
 export const HINT_KEYS = ["W A S D", "Shift", "Mouse", "Esc"] as const;
+
+/** The same on a phone, where there are no keys: the gestures. */
+export const TOUCH_HINTS = [
+  ["Left thumb", "Move"],
+  ["Right thumb", "Look"],
+  ["Tap", "Use"],
+] as const;
 
 export const actionOf = (keys: string) =>
   CONTROLS.find(([candidate]) => candidate === keys)?.[1] ?? "";

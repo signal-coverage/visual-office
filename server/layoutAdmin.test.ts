@@ -4,6 +4,8 @@ import type { AuditInput } from "./auditStore.ts";
 import { handleLayoutAdmin, MAX_LAYOUT_BODY_BYTES } from "./layoutAdmin.ts";
 import { FloorLocks } from "./floorLocks.ts";
 import { MemoryLayoutStore } from "./layoutStore.ts";
+import { templateById } from "../shared/floorTemplates.ts";
+import { DEFAULT_SHELL } from "../shared/defaultShell.ts";
 
 // Somewhere in the open office, so it raises no problems
 const desk = { kind: "desk" as const, x: -3, z: 3, rotation: 0 as const };
@@ -51,6 +53,174 @@ describe("handleLayoutAdmin", () => {
     expect((await call("GET", "/admin/floors/office/layout"))?.status).toBe(
       404,
     );
+  });
+
+  describe("the shell", () => {
+    const meeting = () => structuredClone(templateById("meeting")!.shell);
+    const open = () => structuredClone(templateById("open")!.shell);
+    const publish = (body: Record<string, unknown>) =>
+      asAuthor("POST", "/admin/floors/office/layout", {
+        author: "ana",
+        furniture: [],
+        models: [],
+        ...body,
+      });
+
+    it("stores the shell that comes with the layout, and gives it back", async () => {
+      const reply = await publish({ shell: meeting() });
+      expect(reply?.status).toBe(200);
+      expect((await layouts.current("office"))?.shell).toEqual(meeting());
+      const current = await call("GET", "/admin/floors/office/layout");
+      expect(current?.body).toMatchObject({ shell: meeting() });
+    });
+
+    it("sanitizes it: what is stored is what the sanitizer makes of it", async () => {
+      const shell = { ...meeting(), width: 36.0004, evil: "<script>" };
+      await publish({ shell });
+      const stored = (await layouts.current("office"))?.shell;
+      expect(stored).toEqual(meeting());
+      expect(stored).not.toHaveProperty("evil");
+    });
+
+    it("refuses what is not a shell, and stores nothing", async () => {
+      for (const shell of ["x", 7, [], {}, { ...meeting(), width: 5 }]) {
+        const reply = await publish({ shell });
+        expect(reply?.status, JSON.stringify(shell)).toBe(400);
+        expect(reply?.body.error).toMatch(/shell/i);
+      }
+      expect(await layouts.current("office")).toBeNull();
+    });
+
+    it("refuses a shell with problems and lists them, whatever the author accepts", async () => {
+      const shell = meeting();
+      shell.spawn.area = { minX: -9, maxX: -8, minZ: -6, maxZ: -5 };
+      const reply = await publish({ shell, acceptProblems: true });
+      expect(reply?.status).toBe(400);
+      expect(reply?.body.shellProblems).toEqual(
+        expect.arrayContaining([expect.stringMatching(/zone/i)]),
+      );
+      expect(await layouts.current("office")).toBeNull();
+    });
+
+    it("refuses a shell that lost entries to the sanitizer, rather than store another shell than the one sent", async () => {
+      const shell = meeting();
+      shell.zones.push({ id: "Bad Id", label: "Bad" } as never);
+      const reply = await publish({ shell });
+      expect(reply?.status).toBe(400);
+      expect(String(reply?.body.error)).toMatch(/not valid/i);
+      expect(await layouts.current("office")).toBeNull();
+    });
+
+    it("does not tell the rooms about a shell it refused, and does about one it stored", async () => {
+      const told: Array<[string, number]> = [];
+      onPublished = (floor, version) => told.push([floor, version]);
+      await publish({ shell: { ...meeting(), width: 5 } });
+      expect(told).toEqual([]);
+      await publish({ shell: meeting() });
+      expect(told).toEqual([["office", 1]]);
+    });
+
+    it("refuses a zone with no area, a ninth zone and a board that hangs on no wall", async () => {
+      const flat = meeting();
+      flat.zones[0].rect = { minX: -10, maxX: -10, minZ: -6, maxZ: -2 };
+      const flatReply = await publish({ shell: flat, acceptProblems: true });
+      expect(flatReply?.status).toBe(400);
+      expect(flatReply?.body.shellProblems).toEqual(
+        expect.arrayContaining([expect.stringMatching(/no area/i)]),
+      );
+
+      const many = meeting();
+      for (let i = 0; i < 8; i++)
+        many.zones.push({
+          id: `extra-${i}`,
+          label: `Extra ${i}`,
+          rect: { minX: -17 + i * 2.2, maxX: -15 + i * 2.2, minZ: 5, maxZ: 7 },
+        });
+      const manyReply = await publish({ shell: many, acceptProblems: true });
+      expect(manyReply?.status).toBe(400);
+
+      const floating = meeting();
+      floating.boards[0] = { ...floating.boards[0], face: 0.37 };
+      const floatingReply = await publish({
+        shell: floating,
+        acceptProblems: true,
+      });
+      expect(floatingReply?.status).toBe(400);
+      expect(floatingReply?.body.shellProblems).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/does not hang on a wall/i),
+        ]),
+      );
+      expect(await layouts.current("office")).toBeNull();
+    });
+
+    it("refuses a zone that overlaps another and a repeated zone id", async () => {
+      const shell = meeting();
+      shell.zones.push({ ...shell.zones[0], label: "Twin" });
+      const reply = await publish({ shell, acceptProblems: true });
+      expect(reply?.status).toBe(400);
+    });
+
+    it("keeps the shell of the floor when a layout is published without one: an editor that knows nothing of shells does not undo it", async () => {
+      await publish({ shell: meeting() });
+      await publish({ furniture: [{ ...desk, x: -3, z: 5 }] });
+      const current = await layouts.current("office");
+      expect(current?.version).toBe(2);
+      expect(current?.shell).toEqual(meeting());
+    });
+
+    it("goes back to the default shell when asked with null", async () => {
+      await publish({ shell: meeting() });
+      await publish({ shell: null });
+      expect(await layouts.current("office")).not.toHaveProperty("shell");
+    });
+
+    it("judges the furniture against the shell it is published with", async () => {
+      const wide = { kind: "desk", x: 13, z: 0, rotation: 0 };
+      // Fine in the default office...
+      expect((await publish({ furniture: [wide] }))?.status).toBe(200);
+      // ...past the walls of a 24 m floor
+      const reply = await publish({
+        furniture: [wide],
+        shell: open(),
+      });
+      expect(reply?.status).toBe(422);
+      expect(reply?.body.needsConfirmation).toBe(true);
+      // And judged against the floor's own shell when none is sent
+      await publish({ shell: open() });
+      const again = await publish({ furniture: [wide] });
+      expect(again?.status).toBe(422);
+    });
+
+    it("goes back to the shell of the version it reverts to", async () => {
+      await publish({ shell: meeting() });
+      await publish({ shell: open() });
+      const reply = await asAuthor(
+        "POST",
+        "/admin/floors/office/layout/revert",
+        {
+          author: "ana",
+          version: 1,
+        },
+      );
+      expect(reply?.status).toBe(200);
+      expect((await layouts.current("office"))?.shell).toEqual(meeting());
+    });
+
+    it("reverts to a version with no shell by publishing none", async () => {
+      await publish({});
+      await publish({ shell: meeting() });
+      await asAuthor("POST", "/admin/floors/office/layout/revert", {
+        author: "ana",
+        version: 1,
+      });
+      expect(await layouts.current("office")).not.toHaveProperty("shell");
+    });
+
+    it("lets the default shell be stored as such too", async () => {
+      expect((await publish({ shell: DEFAULT_SHELL }))?.status).toBe(200);
+      expect((await layouts.current("office"))?.shell).toEqual(DEFAULT_SHELL);
+    });
   });
 
   describe("publishing", () => {

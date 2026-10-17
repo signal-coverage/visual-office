@@ -90,9 +90,17 @@ export interface AutoQualityState {
   warmupSeconds: number;
 }
 
-export function startAutoQuality(softwareRendering: boolean): AutoQualityState {
+/**
+ * Auto starts on high, and on low where the computer draws without a graphics
+ * card or the device is a phone or tablet: it has less to give, and it runs on
+ * a battery. A person who wants more picks High in the menu.
+ */
+export function startAutoQuality(
+  softwareRendering: boolean,
+  touch = false,
+): AutoQualityState {
   return {
-    level: softwareRendering ? "low" : "high",
+    level: softwareRendering || touch ? "low" : "high",
     slowSeconds: 0,
     warmupSeconds: AUTO_WARMUP_SECONDS,
   };

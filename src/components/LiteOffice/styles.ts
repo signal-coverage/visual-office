@@ -24,3 +24,4 @@ export const who = "m-0 mr-auto text-sm";
 export const inPlace = "static pointer-events-auto max-h-64 max-w-none";
 export const voiceInPlace = "static self-start";
 export const banner = "m-0 text-warning";
+export const voiceNote = "m-0 text-sm text-white/75";

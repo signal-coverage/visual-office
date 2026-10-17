@@ -6,15 +6,18 @@ import {
 } from "../shared/content.ts";
 import type { AuthResult } from "./authenticate.ts";
 import type { ContentStore } from "./contentStore.ts";
-import { mayEnterFloor } from "./floorAccess.ts";
+import { groupsOpen, mayEnterFloor } from "./floorAccess.ts";
 import type { AdminReply } from "./floorAdmin.ts";
 import type { FloorStore } from "./floorStore.ts";
+import type { GroupStore } from "./groupStore.ts";
 import type { Roles } from "./userStore.ts";
 
 export interface ContentReadDeps {
   /** Who is asking, from their token. Null when sign-in is off. */
   authenticate: (token: unknown) => Promise<AuthResult | null>;
   floors: Pick<FloorStore, "get" | "floorsOf">;
+  /** The role groups: without them nobody has a room through a group. */
+  groups?: Pick<GroupStore, "groupsOf">;
   rolesOf: (userId: string) => Promise<Roles>;
   content: Pick<ContentStore, "list" | "get">;
 }
@@ -67,7 +70,10 @@ export async function handleContentRead(
     const granted = who
       ? (await deps.floors.floorsOf(who.user.id)).includes(floor.id)
       : false;
-    if (!mayEnterFloor(roles, floor, granted))
+    const viaGroup =
+      who !== null &&
+      groupsOpen((await deps.groups?.groupsOf(who.user.id)) ?? [], floor.id);
+    if (!mayEnterFloor(roles, floor, granted, viaGroup))
       return {
         status: 403,
         body: { error: "You may not enter this room, so you cannot read it." },

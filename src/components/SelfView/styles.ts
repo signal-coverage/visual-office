@@ -13,6 +13,13 @@ export const frame: CSSProperties = {
   pointerEvents: "none",
 };
 
+/** On a phone the frame is a corner of the column of badges, not the middle of the screen. */
+export const touchFrame: CSSProperties = {
+  ...frame,
+  width: 96,
+  height: 72,
+};
+
 /** Applied to the <video> that LiveKit creates: fills the frame and mirrors like a mirror would. */
 export const video: Partial<CSSStyleDeclaration> = {
   width: "100%",

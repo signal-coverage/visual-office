@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   canEnterFloor,
   entryIsFixed,
+  entryIsLocked,
   fetchPeople,
+  groupsGiving,
   moderatePerson,
   setHead,
   withAccess,
@@ -259,5 +261,101 @@ describe("people and the rooms they can enter", () => {
     expect(people[0].access).toEqual([]);
     expect(withAccess(given, "user_ana", "hr", false)[0].access).toEqual([]);
     expect(withAccess(given, "user_ana", "hr", true)[0].access).toEqual(["hr"]);
+  });
+});
+
+describe("people, groups and the rooms they open", () => {
+  const floorInfo = [
+    { id: "office", name: "Main office", common: true },
+    { id: "hr", name: "People", common: false },
+    { id: "lab", name: "Lab", common: false },
+  ];
+  const viaHr = {
+    ...ana,
+    access: [] as string[],
+    groups: [{ id: "human-resources", name: "Human Resources" }],
+    effectiveAccess: [{ floor: "hr", sources: ["group:Human Resources"] }],
+  };
+  const both: Person = {
+    ...viaHr,
+    access: ["hr"],
+    effectiveAccess: [
+      { floor: "hr", sources: ["direct", "group:Human Resources"] },
+    ],
+  };
+
+  it("keeps the groups of each person and where each entry comes from", async () => {
+    const { request } = api({
+      body: { floors: ["office"], people: [viaHr, ana] },
+    });
+    const list = await fetchPeople(request, base);
+    expect(list?.people[0]).toMatchObject({
+      groups: [{ id: "human-resources", name: "Human Resources" }],
+      effectiveAccess: [{ floor: "hr", sources: ["group:Human Resources"] }],
+    });
+    expect(list?.people[1]).toEqual(ana);
+  });
+
+  it("is nothing when the groups or the sources are not what was asked", async () => {
+    for (const bad of [
+      { ...viaHr, groups: "x" },
+      { ...viaHr, groups: [{ id: 1, name: "x" }] },
+      { ...viaHr, effectiveAccess: [{ floor: "hr", sources: "direct" }] },
+      { ...viaHr, effectiveAccess: [{ floor: 3, sources: [] }] },
+    ])
+      expect(
+        await fetchPeople(
+          api({ body: { floors: ["office"], people: [bad] } }).request,
+          base,
+        ),
+      ).toBeNull();
+  });
+
+  it("names the groups that give somebody a room, and none for a direct entry", () => {
+    expect(groupsGiving(viaHr, "hr")).toEqual(["Human Resources"]);
+    expect(groupsGiving(both, "hr")).toEqual(["Human Resources"]);
+    expect(groupsGiving(viaHr, "lab")).toEqual([]);
+    expect(groupsGiving(ana, "hr")).toEqual([]);
+  });
+
+  it("counts a room from a group as a room somebody may enter", () => {
+    expect(canEnterFloor(viaHr, floorInfo[1])).toBe(true);
+    expect(canEnterFloor(viaHr, floorInfo[2])).toBe(false);
+  });
+
+  it("locks the checkbox when the only way in is a group, and not when there is an entry of their own", () => {
+    expect(entryIsLocked(viaHr, floorInfo[1])).toBe(true);
+    expect(entryIsLocked(both, floorInfo[1])).toBe(false);
+    expect(entryIsLocked(viaHr, floorInfo[2])).toBe(false);
+    expect(entryIsLocked(ana, floorInfo[1])).toBe(false);
+    // What already lets somebody in anyway stays locked, as before
+    expect(entryIsLocked(ana, floorInfo[0])).toBe(true);
+    expect(entryIsLocked({ ...ana, isAdmin: true }, floorInfo[1])).toBe(true);
+  });
+
+  it("keeps where entries come from in step when an entry of their own is given or taken away", () => {
+    const given = withAccess([viaHr], "user_ana", "hr", true)[0];
+    expect(given.access).toEqual(["hr"]);
+    expect(given.effectiveAccess).toEqual([
+      { floor: "hr", sources: ["direct", "group:Human Resources"] },
+    ]);
+    const taken = withAccess([both], "user_ana", "hr", false)[0];
+    expect(taken.effectiveAccess).toEqual([
+      { floor: "hr", sources: ["group:Human Resources"] },
+    ]);
+    const lab = withAccess([viaHr], "user_ana", "lab", true)[0];
+    expect(lab.effectiveAccess).toEqual([
+      { floor: "hr", sources: ["group:Human Resources"] },
+      { floor: "lab", sources: ["direct"] },
+    ]);
+    expect(
+      withAccess([lab], "user_ana", "lab", false)[0].effectiveAccess,
+    ).toEqual([{ floor: "hr", sources: ["group:Human Resources"] }]);
+  });
+
+  it("leaves people who do not carry the sources as they were", () => {
+    expect(withAccess([ana], "user_ana", "hr", true)[0]).not.toHaveProperty(
+      "effectiveAccess",
+    );
   });
 });

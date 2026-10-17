@@ -21,6 +21,7 @@ import {
   EDIT_FLOOR_LABEL,
   enteringRoom,
   EYEBROW,
+  GROUPS_LABEL,
   HINT_KEYS,
   INVITE_PEOPLE_LABEL,
   MANAGE_PEOPLE_LABEL,
@@ -33,6 +34,7 @@ import {
   SETTINGS_LABEL,
   SUBTITLE,
   TITLE,
+  TOUCH_HINTS,
 } from "./consts";
 import * as styles from "./styles";
 import type { LobbyScreenProps } from "./types";
@@ -51,9 +53,11 @@ export function LobbyScreen({
   onOpenActivity,
   onOpenCalendars,
   onManageRooms,
+  onManageGroups,
   onManageContent,
   roomName,
   onJoin,
+  touch = false,
 }: LobbyScreenProps) {
   const [typedName, setName] = useState(initialName);
   // Somebody who signed in is called what their profile says
@@ -118,10 +122,13 @@ export function LobbyScreen({
             <AppearancePicker value={appearance} onChange={setAppearance} />
 
             <ul className={styles.controls}>
-              {HINT_KEYS.map((keys) => (
+              {(touch
+                ? TOUCH_HINTS
+                : HINT_KEYS.map((keys) => [keys, actionOf(keys)] as const)
+              ).map(([keys, action]) => (
                 <li key={keys} className={styles.controlRow}>
                   <Kbd>{keys}</Kbd>
-                  <span>{actionOf(keys)}</span>
+                  <span>{action}</span>
                 </li>
               ))}
             </ul>
@@ -142,6 +149,7 @@ export function LobbyScreen({
               onOpenActivity ||
               onOpenCalendars ||
               onManageRooms ||
+              onManageGroups ||
               onManageContent) && (
               <div className={styles.admin}>
                 {onEditFloor && (
@@ -212,6 +220,16 @@ export function LobbyScreen({
                     onPress={onManageRooms}
                   >
                     {ROOMS_LABEL}
+                  </Button>
+                )}
+                {onManageGroups && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={busy}
+                    onPress={onManageGroups}
+                  >
+                    {GROUPS_LABEL}
                   </Button>
                 )}
                 {onManageContent && (

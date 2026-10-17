@@ -2,12 +2,15 @@ import { floorInfoFor } from "./floorAccess.ts";
 import type { AuthResult } from "./authenticate.ts";
 import type { AdminReply } from "./floorAdmin.ts";
 import type { FloorStore } from "./floorStore.ts";
+import type { GroupStore } from "./groupStore.ts";
 import type { Roles } from "./userStore.ts";
 
 export interface FloorListDeps {
   /** Who is asking, from their token. Null when sign-in is off. */
   authenticate: (token: unknown) => Promise<AuthResult | null>;
   floors: Pick<FloorStore, "list" | "floorsOf">;
+  /** The role groups: without them nobody has a room through a group. */
+  groups?: Pick<GroupStore, "groupsOf">;
   rolesOf: (userId: string) => Promise<Roles>;
 }
 
@@ -49,9 +52,14 @@ export async function handleFloorList(
     // With sign-in off there is nobody to identify: everybody may enter everywhere
     const roles = who ? await deps.rolesOf(who.user.id) : null;
     const granted = who ? await deps.floors.floorsOf(who.user.id) : [];
+    const groupFloors = who
+      ? ((await deps.groups?.groupsOf(who.user.id)) ?? []).flatMap(
+          (group) => group.floors,
+        )
+      : [];
     return {
       status: 200,
-      body: { floors: floorInfoFor(roles, floors, granted) },
+      body: { floors: floorInfoFor(roles, floors, granted, groupFloors) },
     };
   } catch (error) {
     console.error("The room list could not reach the database", error);

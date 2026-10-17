@@ -10,6 +10,7 @@ import { auditActor, type AuditRecorder } from "./audit.ts";
 import { mayEditContent } from "./contentAccess.ts";
 import type { ContentStore } from "./contentStore.ts";
 import type { AdminReply, AdminRequest } from "./floorAdmin.ts";
+import { isArchived } from "./floorArchive.ts";
 import type { FloorStore } from "./floorStore.ts";
 
 const CONTENT = "/admin/content";
@@ -107,6 +108,7 @@ async function list(
   const floorId = request.query?.floor;
   if (floorId === undefined) {
     const floors = (await deps.floors.list())
+      .filter((floor) => !isArchived(floor))
       .filter((floor) => mayEditContent(actor, floor.id))
       .map(({ id, name }) => ({ id, name }));
     if (floors.length === 0 && actor.kind === "user") return NOT_ALLOWED;

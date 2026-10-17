@@ -8,6 +8,8 @@ export interface FloorRecord {
   common: boolean;
   /** Milliseconds since 1970: the main office is 0, so it is always first. */
   createdAt: number;
+  /** Milliseconds since 1970 when it was archived: absent for a room in use. */
+  archivedAt?: number;
 }
 
 /**
@@ -22,6 +24,10 @@ export interface FloorStore {
   create(input: { id: string; name: string }): Promise<FloorRecord | null>;
   /** Null when there is no such floor. */
   rename(id: string, name: string): Promise<FloorRecord | null>;
+  /** Archives a floor (hides it and closes it to everybody) keeping the first moment if it already was. Null when there is no such floor. */
+  archive(id: string): Promise<FloorRecord | null>;
+  /** Brings an archived floor back. Null when there is no such floor. */
+  unarchive(id: string): Promise<FloorRecord | null>;
   /** Gives somebody an entry for a floor. False when there is no such floor; doing it twice changes nothing. */
   grant(floor: string, userId: string): Promise<boolean>;
   /** Takes the entry away. False when there was none. */
@@ -81,6 +87,23 @@ export class MemoryFloorStore implements FloorStore {
     const renamed = { ...floor, name };
     this.floors.set(id, renamed);
     return { ...renamed };
+  }
+
+  async archive(id: string) {
+    const floor = this.floors.get(id);
+    if (!floor) return null;
+    const archived = { ...floor, archivedAt: floor.archivedAt ?? this.now() };
+    this.floors.set(id, archived);
+    return { ...archived };
+  }
+
+  async unarchive(id: string) {
+    const floor = this.floors.get(id);
+    if (!floor) return null;
+    const back: FloorRecord = { ...floor };
+    delete back.archivedAt;
+    this.floors.set(id, back);
+    return { ...back };
   }
 
   async grant(floor: string, userId: string) {

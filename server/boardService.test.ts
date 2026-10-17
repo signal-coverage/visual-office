@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { boardById } from "../shared/boards.ts";
+import { boardById, boardsOf, type Board } from "../shared/boards.ts";
+import { templateById } from "../shared/floorTemplates.ts";
 import { BoardService, type BoardHost } from "./boardService.ts";
 
 const board = boardById("meeting")!;
@@ -17,7 +18,7 @@ interface Sent {
   payload: Record<string, unknown>;
 }
 
-function setup() {
+function setup(boards?: readonly Board[]) {
   const zones = new Map<string, string | null>();
   const positions = new Map<string, { x: number; z: number }>();
   const sent: Sent[] = [];
@@ -31,7 +32,7 @@ function setup() {
     send: (to, type, payload) =>
       sent.push({ to, type, payload: payload as Record<string, unknown> }),
   };
-  const service = new BoardService(host, () => now);
+  const service = new BoardService(host, () => now, boards);
 
   const join = (id: string, zone: string | null, at = NEAR) => {
     zones.set(id, zone);
@@ -225,5 +226,94 @@ describe("BoardService, coming in", () => {
     t.join("cami", null);
     t.service.enteredZone("cami", "lounge");
     expect(t.sent).toEqual([]);
+  });
+});
+
+describe("BoardService, on the boards of another floor", () => {
+  const meetingFloor = boardsOf(templateById("meeting")!.shell);
+  const openFloor = boardsOf(templateById("open")!.shell);
+  const standAt = (b: Board, meters = 1.5) => ({
+    x: b.center.x + b.normal.x * meters,
+    z: b.center.z + b.normal.z * meters,
+  });
+  const strokeOn = (id: string) => ({
+    board: id,
+    id: 1,
+    ink: 0,
+    points: [[0.1, 0.2]],
+  });
+
+  it("knows only the boards it was given: the default whiteboard is not there", () => {
+    const t = setup(meetingFloor);
+    t.join("ana", "meeting");
+    expect(t.service.draw("ana", stroke())).toBe(false);
+    expect(t.sent).toEqual([]);
+  });
+
+  it("keeps each room's board apart: what is drawn in one never reaches the people of another", () => {
+    const t = setup(meetingFloor);
+    const [a, b] = meetingFloor;
+    t.join("ana", a.zone, standAt(a));
+    t.join("beto", a.zone, standAt(a));
+    t.join("cami", b.zone, standAt(b));
+    expect(t.service.draw("ana", strokeOn(a.id))).toBe(true);
+    expect(t.sent.map((m) => m.to)).toEqual(["beto"]);
+    // Cami cannot draw on the board of the room she is not in, even next to it
+    t.sent.length = 0;
+    t.join("cami", b.zone, standAt(a));
+    expect(t.service.draw("cami", strokeOn(a.id))).toBe(false);
+    expect(t.sent).toEqual([]);
+  });
+
+  it("gives each board of the floor its own ink", () => {
+    const t = setup(meetingFloor);
+    const [a, b] = meetingFloor;
+    t.join("ana", a.zone, standAt(a));
+    t.service.draw("ana", strokeOn(a.id));
+    t.join("cami", null);
+    t.service.enteredZone("cami", b.zone!);
+    const snapshot = t.sent.find((m) => m.type === "board" && m.to === "cami")!;
+    expect(snapshot.payload.board).toBe(b.id);
+    expect(snapshot.payload.strokes).toEqual([]);
+  });
+
+  it("has boards of the open floor: whoever is in no private zone shares them", () => {
+    const t = setup(openFloor);
+    const [board] = openFloor;
+    expect(board.zone).toBeNull();
+    t.join("ana", null, standAt(board));
+    t.join("beto", null, standAt(board));
+    expect(t.service.draw("ana", strokeOn(board.id))).toBe(true);
+    expect(t.sent.map((m) => m.to)).toEqual(["beto"]);
+  });
+
+  it("does not let somebody who is in a private zone draw on a board of the open floor", () => {
+    const t = setup(openFloor);
+    const [board] = openFloor;
+    t.join("ana", "somewhere", standAt(board));
+    expect(t.service.draw("ana", strokeOn(board.id))).toBe(false);
+  });
+
+  it("gives somebody who comes back to the open floor what is on its boards", () => {
+    const t = setup(openFloor);
+    const [board] = openFloor;
+    t.join("ana", null, standAt(board));
+    t.service.draw("ana", strokeOn(board.id));
+    t.join("beto", null, standAt(board));
+    t.service.enteredZone("beto", null);
+    const snapshot = t.sent.find((m) => m.type === "board" && m.to === "beto")!;
+    expect(snapshot.payload.board).toBe(board.id);
+    expect(snapshot.payload.strokes).toHaveLength(1);
+  });
+
+  it("wipes a board of the open floor for everybody there", () => {
+    const t = setup(openFloor);
+    const [board] = openFloor;
+    t.join("ana", null, standAt(board));
+    t.join("beto", null, standAt(board));
+    expect(t.service.clear("ana", { board: board.id })).toBe(true);
+    expect(t.sent).toEqual([
+      { to: "beto", type: "clearBoard", payload: { board: board.id } },
+    ]);
   });
 });

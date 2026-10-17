@@ -1,4 +1,5 @@
 import { Component } from "react";
+import { reportClientError } from "../../monitoring/reporter";
 import type { ErrorBoundaryProps, ErrorBoundaryState } from "./types";
 
 /**
@@ -18,6 +19,7 @@ export class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error) {
     console.error("A part of the page failed", error);
+    reportClientError(error, { source: "ErrorBoundary" });
   }
 
   render() {

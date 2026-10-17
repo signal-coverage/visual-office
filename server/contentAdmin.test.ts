@@ -130,6 +130,14 @@ describe("handleContentAdmin", () => {
   });
 
   describe("what a person may edit", () => {
+    it("does not offer an archived room, for its content cannot be seen by anybody", async () => {
+      await floors.archive("lab");
+      const reply = await call(admin, "GET", "/admin/content");
+      expect(
+        (reply?.body.floors as Array<{ id: string }>).map((f) => f.id),
+      ).toEqual(["office", "hr"]);
+    });
+
     it("lists every floor for an admin and for the server's own tools", async () => {
       const expected = [
         { id: "office", name: "Main office" },

@@ -203,3 +203,60 @@ describe("createCalendarService", () => {
     });
   });
 });
+
+const URL_B = "https://example.com/b.ics?token=OTHER";
+
+describe("createCalendarService with rooms that change", () => {
+  it("asks for the rooms each time: a floor made while the server runs can have calendars", async () => {
+    const store = new MemorySettingsStore();
+    let rooms = ["meeting"];
+    const service = createCalendarService({
+      store,
+      fetchFeed: async () => ({ ok: true, text: FEED }),
+      now: () => NOW,
+      rooms: async () => rooms,
+    });
+    await service.setFeed("hr.room-a", URL_A);
+    expect(await service.feedOf("hr.room-a")).toBeNull();
+    rooms = ["meeting", "hr.room-a"];
+    await service.setFeed("hr.room-a", URL_A);
+    expect(await service.feedOf("hr.room-a")).toBe(URL_A);
+    expect(await service.configured()).toEqual({
+      meeting: false,
+      "hr.room-a": true,
+    });
+  });
+
+  it("keeps the feed of the main office where it was, and puts another floor's under its own key", async () => {
+    const store = new MemorySettingsStore();
+    await store.set(`${FEED_KEY_PREFIX}meeting`, URL_A);
+    const service = createCalendarService({
+      store,
+      fetchFeed: async () => ({ ok: true, text: FEED }),
+      now: () => NOW,
+      rooms: async () => ["meeting", "hr.meeting"],
+    });
+    // The one saved before floors had their own shells is still the main office's
+    expect(await service.feedOf("meeting")).toBe(URL_A);
+    expect(await service.feedOf("hr.meeting")).toBeNull();
+    await service.setFeed("hr.meeting", URL_B);
+    expect(await store.get(`${FEED_KEY_PREFIX}hr.meeting`)).toBe(URL_B);
+    expect(await store.get(`${FEED_KEY_PREFIX}meeting`)).toBe(URL_A);
+  });
+
+  it("stops serving the feed of a room that no longer exists", async () => {
+    const store = new MemorySettingsStore();
+    let rooms = ["hr.room-a"];
+    const service = createCalendarService({
+      store,
+      fetchFeed: async () => ({ ok: true, text: FEED }),
+      now: () => NOW,
+      rooms: async () => rooms,
+    });
+    await service.setFeed("hr.room-a", URL_A);
+    expect((await service.eventsOf("hr.room-a")).configured).toBe(true);
+    rooms = [];
+    expect(await service.feedOf("hr.room-a")).toBeNull();
+    expect((await service.eventsOf("hr.room-a")).configured).toBe(false);
+  });
+});

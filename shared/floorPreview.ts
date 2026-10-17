@@ -1,9 +1,7 @@
 import type { Box } from "./collision.ts";
-import { OFFICE_DEPTH, OFFICE_WIDTH } from "./constants.ts";
 import { furnitureExtent, isFlat } from "./furniture.ts";
 import { sceneFor, type Layout } from "./layout.ts";
 import { footprintCollider } from "./props.ts";
-import { ZONES } from "./zones.ts";
 
 /** A rectangle seen from above, in meters: [minX, minZ, maxX, maxZ], to a tenth. */
 export type PreviewRect = readonly [
@@ -73,15 +71,15 @@ export function previewOf(id: string, layout: Layout): FloorPreview {
   }
   return {
     id,
-    width: OFFICE_WIDTH,
-    depth: OFFICE_DEPTH,
-    walls: scene.shell
+    width: scene.shell.width,
+    depth: scene.shell.depth,
+    walls: scene.shellPieces
       .filter((piece) => piece.solid && piece.opacity === undefined)
       .map(boxOf),
-    glass: scene.shell
+    glass: scene.shellPieces
       .filter((piece) => piece.opacity !== undefined)
       .map(boxOf),
-    zones: ZONES.map((zone) => rectOf(zone.area)),
+    zones: scene.zones.map((zone) => rectOf(zone.area)),
     items: unique(items).slice(0, MAX_PREVIEW_RECTS),
   };
 }

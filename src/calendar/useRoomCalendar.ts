@@ -4,6 +4,7 @@ import { currentServerUrl } from "../game/serverAddress";
 import { fetchRooms, withToken } from "./calendar";
 import { POLL_MS } from "./consts";
 import { describeRoomNow, viewerDay } from "./format";
+import { findRoom } from "./schedule";
 
 /**
  * The line to show about the private room the player stands in (`label` is its name on screen): what
@@ -12,6 +13,8 @@ import { describeRoomNow, viewerDay } from "./format";
  */
 export function useRoomNow(
   label: string | null,
+  /** The floor the player is on: two floors can have a room of the same name. */
+  floor: string,
   getToken: () => Promise<string | null>,
 ): string | null {
   const [found, setFound] = useState<{
@@ -29,7 +32,7 @@ export function useRoomNow(
         httpUrlOf(currentServerUrl()),
         viewerDay(Date.now()),
       ).then((rooms) => {
-        const room = rooms?.find((candidate) => candidate.label === label);
+        const room = rooms && findRoom(rooms, label, floor);
         if (current && room)
           setFound({ label, text: describeRoomNow(room, Date.now()) });
       });
@@ -39,7 +42,7 @@ export function useRoomNow(
       current = false;
       clearInterval(timer);
     };
-  }, [label, getToken]);
+  }, [label, floor, getToken]);
 
   return label && found?.label === label ? found.text : null;
 }

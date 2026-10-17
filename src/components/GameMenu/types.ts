@@ -43,6 +43,10 @@ export interface GameMenuProps {
     /** Opens the map of rooms. */
     onOpenMap: () => void;
   };
+  /** The office is walked with fingers: the controls panel and the sensitivity are about thumbs, not keys and a mouse. */
+  touch?: boolean;
+  /** Goes to the lite screen (no 3D). Offered on a phone, where the 3D office can be heavy. */
+  onLite?: () => void;
   /** Only for somebody the server lets moderate: who is here, and how to ask for an action on them. */
   moderation?: {
     people: ModerationPerson[];

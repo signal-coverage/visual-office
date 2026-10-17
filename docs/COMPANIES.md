@@ -81,15 +81,28 @@ dashboard (_Paths_): the game recognises an invitation wherever it lands on its 
 | `LIVEKIT_API_KEY`            | The LiveKit key                                                                |
 | `LIVEKIT_API_SECRET`         | The LiveKit secret                                                             |
 | `VOICE_ROOM_PREFIX`          | The company's short name (`acme`), **needed** if the LiveKit project is shared |
+| `SENTRY_DSN`                 | _Recommended._ The address (DSN) of a Sentry project for the server's errors   |
 
 Leave out `FLOOR_ADMIN_TOKEN` unless you need scripts: it gives full access to whoever holds it.
+(`npm run backup` is one: see [Backups](BUILDING.md#backups). Set the token for the backup and take it
+out again if you do not run backups regularly.)
+
+Two more can be set, and almost never need to be: `HTTP_RATE_LIMIT_PER_MINUTE` (requests per
+address per minute on `/account`, `/calendar` and `/admin`; 1200 by default, `0` turns it off) and
+`TRUST_PROXY=0` (if the server runs in production **without** a proxy in front, so the address
+is not taken from `X-Forwarded-For`). Both are explained in [BUILDING.md](BUILDING.md#rate-limits-body-limits-and-headers).
+
+**Railway health check.** In the service's settings set the health check path to `/health`. It
+answers `{"ok":true,"uptime":…,"db":"up","version":…}` without any sign-in, and `503` only while the
+server is restarting ([BUILDING.md, Health check](BUILDING.md#health-check)).
 
 **Site** (Vercel). Both are fixed when the site is built, so deploy again after changing them.
 
-| Variable                     | Value                                    |
-| ---------------------------- | ---------------------------------------- |
-| `VITE_SERVER_URL`            | `wss://` + the company's Railway address |
-| `VITE_CLERK_PUBLISHABLE_KEY` | The company's publishable key (`pk_…`)   |
+| Variable                     | Value                                                               |
+| ---------------------------- | ------------------------------------------------------------------- |
+| `VITE_SERVER_URL`            | `wss://` + the company's Railway address                            |
+| `VITE_CLERK_PUBLISHABLE_KEY` | The company's publishable key (`pk_…`)                              |
+| `VITE_SENTRY_DSN`            | _Recommended._ The DSN of a Sentry project for the browser's errors |
 
 Never put a secret key, the database address or LiveKit's keys on the site.
 
@@ -111,7 +124,9 @@ something would stop the company from working. It checks, among others, that:
 - the site and the server use the **same** Clerk keys;
 - the site's server address is a `wss://` one;
 - the allowed origins are proper site addresses;
-- voice is on, and that there is a room prefix.
+- voice is on, and that there is a room prefix;
+- error monitoring: a missing or malformed `SENTRY_DSN` / `VITE_SENTRY_DSN` is only a recommendation
+  (a warning, never an error), because monitoring is optional and off unless the address is set.
 
 It cannot check what only the dashboards know (that the organization really is the company's,
 that the Clerk domain matches the site, that the invitations went out).

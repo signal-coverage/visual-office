@@ -3,4 +3,6 @@ export interface ToastProps {
   text: string | null;
   /** Where it goes: an alert (a direct message, a knock) sits below the usual notices so neither hides the other. */
   slot?: "notice" | "alert";
+  /** On a phone: placed clear of the touch controls. */
+  touch?: boolean;
 }

@@ -7,6 +7,7 @@ import {
   type FeedRoom,
 } from "../../calendar/admin";
 import { withToken } from "../../calendar/calendar";
+import { roomTitle } from "../../calendar/schedule";
 import { httpUrlOf } from "../../editor/backend";
 import { currentServerUrl } from "../../game/serverAddress";
 import { CLOSE_LABEL, INTRO, LOAD_ERROR, LOADING, TITLE } from "./consts";
@@ -58,7 +59,7 @@ export function CalendarsAdmin({ getToken, onClose }: CalendarsAdminProps) {
                 {rooms.map((room) => (
                   <FeedRow
                     key={room.room}
-                    label={room.label}
+                    label={roomTitle(room)}
                     initialUrl={room.url}
                     onSave={(url) =>
                       saveFeed(request, adminBase, room.room, url)

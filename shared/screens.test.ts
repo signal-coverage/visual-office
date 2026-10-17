@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { OFFICE_HEIGHT, OFFICE_DEPTH, WALL_THICKNESS } from "./constants.ts";
 import { BOARDS } from "./boards.ts";
-import { SCREENS, screenById, zoneHasScreen } from "./screens.ts";
+import { SCREENS, screenById, screensOf, zoneHasScreen } from "./screens.ts";
 import { zoneById } from "./zones.ts";
 
 describe("the screens", () => {
@@ -66,5 +66,38 @@ describe("the screens", () => {
     expect(new Set(SCREENS.map((s) => s.id)).size).toBe(SCREENS.length);
     expect(screenById("meeting")).toBe(SCREENS[0]);
     expect(screenById("nowhere")).toBeUndefined();
+  });
+});
+
+describe("screens of another shell", () => {
+  const screens = screensOf({
+    screens: [
+      {
+        id: "s",
+        zone: "z",
+        facing: "west",
+        face: 11.85,
+        along: -4,
+        y: 1.8,
+        width: 3,
+      },
+    ],
+  });
+
+  it("hangs where the shell says, facing out of its wall", () => {
+    expect(screens).toHaveLength(1);
+    const [screen] = screens;
+    expect(screen.normal).toEqual({ x: -1, y: 0, z: 0 });
+    expect(screen.center.z).toBe(-4);
+    expect(screen.center.y).toBe(1.8);
+    expect(screen.center.x).toBeCloseTo(11.85 - 0.064, 9);
+    expect(screen.height).toBeCloseTo((3 * 9) / 16, 9);
+  });
+
+  it("looks them up among the screens it is given", () => {
+    expect(screenById("s", screens)?.zone).toBe("z");
+    expect(screenById("meeting", screens)).toBeUndefined();
+    expect(zoneHasScreen("z", screens)).toBe(true);
+    expect(zoneHasScreen("meeting", screens)).toBe(false);
   });
 });

@@ -1,12 +1,22 @@
 export const TITLE = "People";
 export const INTRO =
-  "Everybody who has signed in. The head of a floor can edit its layout and can always enter it; admins can do that on every floor and name heads. Under Can enter, choose which rooms each person may enter: everybody can enter the common room.";
+  "Everybody who has signed in. The head of a floor can edit its layout and can always enter it; admins can do that on every floor and name heads. Under Can enter, choose which rooms each person may enter: everybody can enter the common room. A room marked via a group comes from that group (change it in Groups); an entry of their own can be added or taken away apart from it.";
 export const headColumn = (floor: string) => `Head of ${floor}`;
 export const enterColumn = (floor: string) => `Can enter ${floor}`;
 export const headLabel = (person: string, floor: string) =>
   `${person} is head of ${floor}`;
-export const enterLabel = (person: string, floor: string) =>
-  `${person} can enter ${floor}`;
+export const enterLabel = (
+  person: string,
+  floor: string,
+  groups: readonly string[] = [],
+) =>
+  groups.length > 0
+    ? `${person} can enter ${floor} (via ${groups.join(", ")})`
+    : `${person} can enter ${floor}`;
+export const viaGroups = (groups: readonly string[]) =>
+  `via ${groups.join(", ")}`;
+export const viaGroupLabel = (groups: readonly string[]) =>
+  `Can enter through the group ${groups.join(", ")}`;
 export const ALWAYS_NOTE = "always";
 export const LOADING = "Loading…";
 export const LOAD_ERROR = "Could not load the people. Try again in a moment.";

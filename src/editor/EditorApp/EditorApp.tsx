@@ -11,8 +11,10 @@ import {
   sanitizeFurniture,
   type Furniture,
 } from "../../../shared/furniture.ts";
+import { shellOrDefault } from "../../../shared/defaultShell.ts";
+import { FLOOR_TEMPLATES } from "../../../shared/floorTemplates.ts";
 import { FURNITURE } from "../../../shared/layout.ts";
-import { findProblems, type Target } from "../../../shared/officeProblems.ts";
+import type { Target } from "../../../shared/officeProblems.ts";
 import {
   PROPS,
   sanitizeModels,
@@ -24,8 +26,34 @@ import type { EditorBackend } from "../backend";
 import { FloorSession, type SessionState } from "../floorSession";
 import { Inspector, type Inspected } from "../Inspector";
 import { forgetModel, measureModel } from "../measure";
+import { ModeSwitch, type EditorMode } from "../ModeSwitch";
+import { NameModal } from "../NameModal";
 import { Palette, type Placing } from "../Palette";
+import {
+  blocking,
+  editorProblems,
+  structureKeys,
+  type EditorProblem,
+} from "../problems";
 import { ProblemList } from "../ProblemList";
+import { describeOutside, partsOutside } from "../shellEdit";
+import { StructureInspector } from "../StructureInspector";
+import { StructurePalette } from "../StructurePalette";
+import {
+  deleteStructure,
+  nudgeStructure,
+  renameStructure,
+  resizeStructureFloor,
+  selectStructure,
+  setStructureGeometry,
+  setStructureMount,
+  setStructureTone,
+  shellOf,
+  shellToPublish,
+  turnSpawn,
+  applyTemplate,
+} from "../structureState";
+import { TemplateModal } from "../TemplateModal";
 import { TipButton } from "../TipButton";
 import {
   addFurniture,
@@ -45,22 +73,28 @@ import {
   snap,
   undo,
   updateSelectedModel,
+  type EditorState,
 } from "../state";
-import { CANVAS_HEIGHT, CANVAS_WIDTH, screenToWorld } from "../view";
+import { viewOf } from "../view";
 import {
   DEFAULT_STEP,
   DRAG_THRESHOLD,
   FALLBACK_FOOTPRINT,
   SNAPS,
   STATUS,
+  LEGEND,
+  STRUCTURE_STEP,
 } from "./consts";
 import * as styles from "./styles";
+import { useStructureTools } from "./useStructureTools";
 
 /** The layout the game server has stored for the floor, or null (none yet, or no game server). */
 interface StoredLayout {
   version: number;
   furniture: unknown;
   models: unknown;
+  /** The shell of the floor: none for a floor that has the default one. */
+  shell?: unknown;
 }
 
 async function fetchStoredLayout(
@@ -99,6 +133,11 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<Drag | null>(null);
   const [editor, setEditor] = useState(() => createEditor(FURNITURE, PROPS));
+  const [mode, setMode] = useState<EditorMode>("furniture");
+  const [applying, setApplying] = useState(false);
+  /** The shell of the floor: its own, or the default one. */
+  const shell = shellOf(editor);
+  const view = useMemo(() => viewOf(shell), [shell]);
   const [modelFiles, setModelFiles] = useState<string[]>([]);
   const [placing, setPlacing] = useState<Placing | null>(null);
   const [cursor, setCursor] = useState<[number, number] | null>(null);
@@ -130,24 +169,39 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
     text: string;
     furniture: Furniture[];
     models: PropPlacement[];
+    shell: EditorState["shell"];
   } | null>(null);
   const latest = useRef(editor);
   useEffect(() => {
     latest.current = editor;
   });
   const say = useCallback((text: string) => {
-    const { furniture, models } = latest.current;
-    setNote({ text, furniture, models });
+    const { furniture, models, shell } = latest.current;
+    setNote({ text, furniture, models, shell });
   }, []);
   const message =
-    note && note.furniture === editor.furniture && note.models === editor.models
+    note &&
+    note.furniture === editor.furniture &&
+    note.models === editor.models &&
+    note.shell === editor.shell
       ? note.text
       : null;
 
   const problems = useMemo(
-    () => findProblems(editor.furniture, editor.models),
-    [editor.furniture, editor.models],
+    () => editorProblems(editor.furniture, editor.models, shell),
+    [editor.furniture, editor.models, shell],
   );
+  const errors = blocking(problems);
+  const warnings = useMemo(
+    () => problems.filter((problem) => problem.level === "warning"),
+    [problems],
+  );
+  const outside = useMemo(
+    () => partsOutside(shell, editor.furniture, editor.models),
+    [shell, editor.furniture, editor.models],
+  );
+  const structureMode = mode === "structure";
+  const tools = useStructureTools({ editor, setEditor, step, editing, say });
 
   /** Shows the layout stored in the database, if there is one and nothing was touched yet. */
   const applyStored = useCallback((stored: StoredLayout | null) => {
@@ -156,12 +210,16 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
     const next = createEditor(
       sanitizeFurniture(stored.furniture),
       sanitizeModels(stored.models),
+      stored.shell === undefined || stored.shell === null
+        ? undefined
+        : shellOrDefault(stored.shell),
     );
     setEditor(next);
     setNote({
       text: `Loaded version ${stored.version} from the database.`,
       furniture: next.furniture,
       models: next.models,
+      shell: next.shell,
     });
   }, []);
   useEffect(() => {
@@ -186,7 +244,7 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
   }, [placingModel]);
 
   const ghost: Ghost | null = useMemo(() => {
-    if (!placing || !cursor) return null;
+    if (structureMode || !placing || !cursor) return null;
     return placing.kind === "furniture"
       ? {
           kind: "furniture",
@@ -205,12 +263,13 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
             footprint: footprints[placing.model] ?? FALLBACK_FOOTPRINT,
           },
         };
-  }, [placing, cursor, footprints]);
+  }, [structureMode, placing, cursor, footprints]);
 
   const flagged = useMemo(
     () => new Set(problems.flatMap((p) => p.targets.map(targetKey))),
     [problems],
   );
+  const structureFlagged = useMemo(() => structureKeys(problems), [problems]);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
@@ -218,9 +277,35 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
     drawPlan(
       ctx,
       { furniture: editor.furniture, models: editor.models },
-      { selected: editor.selected, flagged, ghost },
+      {
+        selected: editor.selected,
+        flagged,
+        ghost,
+        ...(structureMode
+          ? {
+              structure: {
+                selected: editor.structure,
+                flagged: structureFlagged,
+                draft: tools.draft,
+              },
+            }
+          : {}),
+      },
+      shell,
     );
-  }, [editor.furniture, editor.models, editor.selected, flagged, ghost]);
+  }, [
+    editor.furniture,
+    editor.models,
+    editor.selected,
+    editor.structure,
+    flagged,
+    structureFlagged,
+    structureMode,
+    tools.draft,
+    ghost,
+    shell,
+    view,
+  ]);
 
   // Do not lose work by closing the tab
   useEffect(() => {
@@ -282,27 +367,34 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
     say("The floor is open again.");
   };
 
-  /** Problems only warn, but saving or publishing them is a decision, not an accident. */
+  /** Warnings only warn, but saving or publishing them is a decision, not an accident. */
   const agreesDespiteProblems = (verb: string): boolean => {
-    if (problems.length === 0) return true;
-    const sample = problems
+    if (warnings.length === 0) return true;
+    const sample = warnings
       .slice(0, 3)
       .map((p) => `• ${p.message}`)
       .join("\n");
     const more =
-      problems.length > 3 ? `\n…and ${problems.length - 3} more.` : "";
+      warnings.length > 3 ? `\n…and ${warnings.length - 3} more.` : "";
     return window.confirm(
-      `This layout has ${problems.length} problem${problems.length === 1 ? "" : "s"}:\n\n${sample}${more}\n\n${verb} it anyway?`,
+      `This layout has ${warnings.length} problem${warnings.length === 1 ? "" : "s"}:\n\n${sample}${more}\n\n${verb} it anyway?`,
     );
   };
 
   /** Stores the layout as the next version of the floor, which is what the game will show. */
   const publish = async () => {
+    if (errors > 0) {
+      say(
+        `Not published: ${errors === 1 ? "1 error has" : `${errors} errors have`} to be fixed first.`,
+      );
+      return;
+    }
     if (!agreesDespiteProblems("Publish")) {
       say("Not published: there are problems to fix.");
       return;
     }
     say("Publishing…");
+    const published = shellToPublish(editor);
     try {
       const response = await backend.request(backend.publishUrl, {
         method: "POST",
@@ -311,6 +403,8 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
           author: holder,
           furniture: editor.furniture,
           models: editor.models,
+          // The shell goes with it when the floor has one of its own or the structure was changed here
+          ...(published.send ? { shell: published.shell } : {}),
           // The server asks for this when there are problems: it was just confirmed above
           acceptProblems: true,
         }),
@@ -319,9 +413,14 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
         error?: string;
         version?: number;
         dropped?: number;
+        shellProblems?: string[];
       };
       if (!response.ok) {
-        say(result.error ?? "Could not publish.");
+        say(
+          [result.error ?? "Could not publish.", result.shellProblems?.[0]]
+            .filter(Boolean)
+            .join(" "),
+        );
         return;
       }
       setEditor(markSaved(editor));
@@ -359,6 +458,10 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
   };
 
   const save = async () => {
+    if (errors > 0) {
+      say("Not saved: there are errors to fix.");
+      return;
+    }
     if (!agreesDespiteProblems("Save")) {
       say("Not saved: there are problems to fix.");
       return;
@@ -444,11 +547,32 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
     }
   };
 
+  const onStructureKey = (e: KeyboardEvent, key: string): boolean => {
+    if (key === "delete" || key === "backspace") {
+      e.preventDefault();
+      const outcome = deleteStructure(latest.current);
+      setEditor(outcome.state);
+      if (outcome.error ?? outcome.note) say(outcome.error ?? outcome.note!);
+    } else if (key === "escape") {
+      // First Esc stops what is being drawn, then the tool, then lets go of the part
+      if (tools.cancel()) return true;
+      if (tools.tool !== "select") tools.setTool("select");
+      else setEditor((state) => selectStructure(state, null));
+    } else if (key.startsWith("arrow")) {
+      e.preventDefault();
+      const dx = key === "arrowleft" ? -step : key === "arrowright" ? step : 0;
+      const dz = key === "arrowup" ? -step : key === "arrowdown" ? step : 0;
+      setEditor((state) => nudgeStructure(state, dx, dz));
+    } else return false;
+    return true;
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!editing || typingIn(e.target)) return;
+      if (!editing || typingIn(e.target) || tools.naming || applying) return;
       const command = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      if (structureMode && !command && onStructureKey(e, key)) return;
 
       if (command && key === "z") {
         e.preventDefault();
@@ -458,12 +582,12 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
         setEditor(redo);
       } else if (command && key === "d") {
         e.preventDefault();
-        setEditor(duplicateSelected);
+        if (!structureMode) setEditor(duplicateSelected);
       } else if (command && key === "s") {
         e.preventDefault();
         void save();
       } else if (!command && key === "r") {
-        setEditor(rotateSelected);
+        if (!structureMode) setEditor(rotateSelected);
       } else if (key === "delete" || key === "backspace") {
         e.preventDefault();
         setEditor(deleteSelected);
@@ -486,15 +610,20 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
   /** Where a mouse event is on the floor, in meters. */
   const worldAt = (e: ReactMouseEvent<HTMLCanvasElement>): [number, number] => {
     const rect = e.currentTarget.getBoundingClientRect();
-    return screenToWorld(
-      ((e.clientX - rect.left) * CANVAS_WIDTH) / rect.width,
-      ((e.clientY - rect.top) * CANVAS_HEIGHT) / rect.height,
+    return view.screenToWorld(
+      ((e.clientX - rect.left) * view.canvasWidth) / rect.width,
+      ((e.clientY - rect.top) * view.canvasHeight) / rect.height,
     );
   };
 
   const onMouseDown = (e: ReactMouseEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 || !editing) return;
     const [wx, wz] = worldAt(e);
+
+    if (structureMode) {
+      tools.press([wx, wz], [e.clientX, e.clientY]);
+      return;
+    }
 
     if (placing) {
       const x = snap(wx, step);
@@ -531,6 +660,10 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
 
   const onMouseMove = (e: ReactMouseEvent<HTMLCanvasElement>) => {
     const [wx, wz] = worldAt(e);
+    if (structureMode) {
+      tools.move([wx, wz], [e.clientX, e.clientY]);
+      return;
+    }
     setCursor([snap(wx, step), snap(wz, step)]);
 
     const drag = dragRef.current;
@@ -554,6 +687,46 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
     dragRef.current = null;
   };
 
+  const onMouseUp = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (structureMode) tools.release(worldAt(e));
+    else endDrag();
+  };
+
+  const changeMode = (next: EditorMode) => {
+    if (next === mode) return;
+    setMode(next);
+    setPlacing(null);
+    setCursor(null);
+    tools.cancel();
+    tools.setTool("select");
+    setStep(next === "structure" ? STRUCTURE_STEP : DEFAULT_STEP);
+    setEditor((state) => select(state, null));
+  };
+
+  /** Picks what a problem is about, going to the mode where it can be seen. */
+  const selectProblem = (problem: EditorProblem) => {
+    const [part] = problem.structure;
+    const [target] = problem.targets;
+    if (part) {
+      changeMode("structure");
+      setEditor((state) => selectStructure(state, part));
+    } else if (target) {
+      changeMode("furniture");
+      selectTarget(target);
+    }
+  };
+
+  const applyTemplateChoice = (
+    template: (typeof FLOOR_TEMPLATES)[number],
+    replaceFurniture: boolean,
+  ) => {
+    setApplying(false);
+    setEditor((state) => applyTemplate(state, template, replaceFurniture));
+    say(
+      `Applied the ${template.name} template${replaceFurniture ? " and its furniture" : ""}. It is only a draft until you publish.`,
+    );
+  };
+
   const inspected: Inspected | null = !editor.selected
     ? null
     : editor.selected.list === "furniture"
@@ -564,6 +737,14 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
     setPlacing(null);
     setEditor((state) => select(state, target));
   };
+
+  /** Why the default layout file cannot be written from here, or null when it can. */
+  const fileBlocked =
+    backend.floor !== undefined
+      ? "officeData.ts is the default layout of the main office, not of this room"
+      : editor.shell !== undefined
+        ? "This floor has a shell of its own: officeData.ts is the furniture of the default one"
+        : null;
 
   return (
     <div className={styles.page}>
@@ -580,6 +761,7 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
           </TipButton>
         )}
         <h1 className={styles.title}>Office editor</h1>
+        <ModeSwitch mode={mode} onChange={changeMode} />
         <Button
           variant="secondary"
           size="sm"
@@ -657,8 +839,12 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
           <TipButton
             variant="secondary"
             size="sm"
-            isDisabled={!editing}
-            tip="Writes shared/officeData.ts: the default layout that comes with the code"
+            isDisabled={!editing || fileBlocked !== null}
+            tip={
+              fileBlocked
+                ? fileBlocked
+                : "Writes shared/officeData.ts: the default layout that comes with the code"
+            }
             onPress={() => void save()}
           >
             Save to file
@@ -668,9 +854,15 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
           size="sm"
           variant={editing ? "primary" : "secondary"}
           isDisabled={
-            !editing || (session.kind === "editing" && session.offline)
+            !editing ||
+            errors > 0 ||
+            (session.kind === "editing" && session.offline)
           }
-          tip="Stores the layout as a new version: the game shows it when the floor opens again"
+          tip={
+            errors > 0
+              ? "Fix the errors listed under Problems first"
+              : "Stores the layout as a new version: the game shows it when the floor opens again"
+          }
           onPress={() => void publish()}
         >
           Publish
@@ -679,8 +871,12 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
           <TipButton
             variant="secondary"
             size="sm"
-            isDisabled={editing || editor.dirty}
-            tip="Writes the published layout into shared/officeData.ts, so it becomes the default that comes with the code"
+            isDisabled={editing || editor.dirty || fileBlocked !== null}
+            tip={
+              fileBlocked
+                ? fileBlocked
+                : "Writes the published layout into shared/officeData.ts, so it becomes the default that comes with the code"
+            }
             onPress={() => void exportToFile()}
           >
             Export published
@@ -689,58 +885,129 @@ export function EditorApp({ backend, onClose }: EditorAppProps) {
       </header>
 
       <div className={styles.body}>
-        <Palette
-          models={modelFiles}
-          placing={placing}
-          isDisabled={!editing}
-          onPlace={setPlacing}
-          onUpload={backend.devTools ? (file) => void upload(file) : undefined}
-        />
+        {structureMode ? (
+          <StructurePalette
+            tool={tools.tool}
+            onTool={tools.setTool}
+            tone={tools.tone}
+            onTone={tools.setTone}
+            width={shell.width}
+            depth={shell.depth}
+            onSize={(width, depth) =>
+              setEditor((state) => resizeStructureFloor(state, width, depth))
+            }
+            warning={describeOutside(outside)}
+            onApplyTemplate={() => setApplying(true)}
+            isDisabled={!editing}
+          />
+        ) : (
+          <Palette
+            models={modelFiles}
+            placing={placing}
+            isDisabled={!editing}
+            onPlace={setPlacing}
+            onUpload={
+              backend.devTools ? (file) => void upload(file) : undefined
+            }
+          />
+        )}
 
         <main className={styles.stage}>
           <canvas
             ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
-            className={styles.canvas(placing !== null)}
+            width={view.canvasWidth}
+            height={view.canvasHeight}
+            className={styles.canvas(
+              structureMode
+                ? tools.tool === "select"
+                  ? "default"
+                  : "crosshair"
+                : placing !== null
+                  ? "copy"
+                  : "default",
+            )}
             aria-label="Plan of the office seen from above"
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
-            onMouseUp={endDrag}
+            onMouseUp={onMouseUp}
             onMouseLeave={() => {
               endDrag();
+              tools.leave();
               setCursor(null);
             }}
           />
         </main>
 
         <aside className={styles.side}>
-          <Inspector
-            inspected={inspected}
-            isDisabled={!editing}
-            onMove={(x, z) => {
-              setEditor((state) =>
-                moveSelectedTo(beginDrag(state), x, z, 0.001),
-              );
-            }}
-            onRotate={() => setEditor(rotateSelected)}
-            onVariant={(variant) =>
-              setEditor((state) => setVariant(state, variant))
-            }
-            onModel={(patch) =>
-              setEditor((state) => updateSelectedModel(state, patch))
-            }
-            onDuplicate={() => setEditor(duplicateSelected)}
-            onDelete={() => setEditor(deleteSelected)}
-          />
-          <ProblemList problems={problems} onSelect={selectTarget} />
+          {structureMode ? (
+            <StructureInspector
+              shell={shell}
+              structure={editor.structure}
+              isDisabled={!editing}
+              onGeometry={(patch) =>
+                setEditor((state) => setStructureGeometry(state, patch))
+              }
+              onMount={(patch) =>
+                setEditor((state) => setStructureMount(state, patch))
+              }
+              onRename={(patch) => {
+                const outcome = renameStructure(latest.current, patch);
+                setEditor(outcome.state);
+                return outcome.error;
+              }}
+              onTone={(tone) =>
+                setEditor((state) => setStructureTone(state, tone))
+              }
+              onYaw={(yaw) => setEditor((state) => turnSpawn(state, yaw))}
+              onDelete={() => {
+                const outcome = deleteStructure(latest.current);
+                setEditor(outcome.state);
+                if (outcome.error ?? outcome.note)
+                  say(outcome.error ?? outcome.note!);
+              }}
+            />
+          ) : (
+            <Inspector
+              inspected={inspected}
+              isDisabled={!editing}
+              onMove={(x, z) => {
+                setEditor((state) =>
+                  moveSelectedTo(beginDrag(state), x, z, 0.001),
+                );
+              }}
+              onRotate={() => setEditor(rotateSelected)}
+              onVariant={(variant) =>
+                setEditor((state) => setVariant(state, variant))
+              }
+              onModel={(patch) =>
+                setEditor((state) => updateSelectedModel(state, patch))
+              }
+              onDuplicate={() => setEditor(duplicateSelected)}
+              onDelete={() => setEditor(deleteSelected)}
+            />
+          )}
+          <ProblemList problems={problems} onSelect={selectProblem} />
           <p className={styles.legend}>
-            Green: the meeting room. Blue: where people appear. Orange line: the
-            whiteboard. Purple line: the screen. Red outline: something wrong.
-            The top of the plan is north.
+            {structureMode ? LEGEND.structure : LEGEND.furniture}
           </p>
         </aside>
       </div>
+
+      {tools.naming && (
+        <NameModal
+          kind={tools.naming.kind}
+          validate={(name) => tools.validateName(name)}
+          onSubmit={tools.name}
+          onCancel={tools.cancelNaming}
+        />
+      )}
+      {applying && (
+        <TemplateModal
+          templates={FLOOR_TEMPLATES}
+          onApply={applyTemplateChoice}
+          onCancel={() => setApplying(false)}
+        />
+      )}
     </div>
   );
 }

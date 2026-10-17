@@ -29,7 +29,11 @@ export interface LobbyScreenProps {
   roomName?: string | null;
   /** Opens the screen where rooms are made and named: only offered to admins. */
   onManageRooms?: () => void;
+  /** Opens the screen where role groups are set: only offered to admins. */
+  onManageGroups?: () => void;
   /** Opens the screen where books and announcements are set up: only offered to admins and heads of floors. */
   onManageContent?: () => void;
   onJoin: (name: string, appearance: Appearance) => void;
+  /** Walked with fingers: the lobby reminds of the gestures, not the keys. */
+  touch?: boolean;
 }

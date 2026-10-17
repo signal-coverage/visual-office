@@ -2,10 +2,58 @@ import { describe, expect, it } from "vitest";
 import { OFFICE_DEPTH, OFFICE_WIDTH } from "./constants.ts";
 import { MAX_PREVIEW_RECTS, previewOf } from "./floorPreview.ts";
 import { OFFICE_FURNITURE, OFFICE_MODELS } from "./officeData.ts";
+import type { Shell } from "./shell.ts";
 
 const layout = { furniture: OFFICE_FURNITURE, models: OFFICE_MODELS };
 
+const OPEN: Shell = {
+  width: 24,
+  depth: 16,
+  walls: [],
+  glass: [{ x: 0, z: 0, width: 0.15, depth: 4 }],
+  floors: [],
+  zones: [
+    {
+      id: "a",
+      label: "Secret name",
+      rect: { minX: -11.85, maxX: -5, minZ: -7.85, maxZ: -3 },
+    },
+    {
+      id: "b",
+      label: "Other",
+      rect: { minX: 5, maxX: 11.85, minZ: -7.85, maxZ: -3 },
+    },
+  ],
+  areas: [],
+  boards: [],
+  screens: [],
+  spawn: { area: { minX: -2, maxX: 2, minZ: 5, maxZ: 6.5 }, yaw: 0 },
+};
+
 describe("previewOf", () => {
+  it("shows each floor's own shell: its size, walls, glass and zones", () => {
+    const preview = previewOf("flat", {
+      furniture: [],
+      models: [],
+      shell: OPEN,
+    });
+    expect(preview.width).toBe(24);
+    expect(preview.depth).toBe(16);
+    expect(preview.walls).toHaveLength(4);
+    expect(preview.glass).toEqual([[-0.1, -2, 0.1, 2]]);
+    expect(preview.zones).toEqual([
+      [-11.8, -7.8, -5, -3],
+      [5, -7.8, 11.9, -3],
+    ]);
+    expect(JSON.stringify(preview)).not.toContain("Secret");
+  });
+
+  it("is the same as before for a layout without a shell", () => {
+    expect(previewOf("office", layout)).toEqual(
+      previewOf("office", { ...layout, shell: undefined }),
+    );
+  });
+
   it("carries the office size, the walls, the glass and the zones", () => {
     const preview = previewOf("office", layout);
     expect(preview.id).toBe("office");

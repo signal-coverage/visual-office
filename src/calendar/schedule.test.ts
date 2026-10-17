@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CalendarEvent } from "../../shared/calendar.ts";
-import { eventRange, joinHint } from "./schedule";
+import { eventRange, findRoom, joinHint, roomTitle } from "./schedule";
 
 const t = (iso: string) => Date.parse(iso);
 const UTC = { locale: "en-GB", timeZone: "UTC" };
@@ -89,5 +89,43 @@ describe("joinHint", () => {
   it("says when there is nothing, or no calendar", () => {
     expect(hint(null, null)).toBe("Nothing scheduled.");
     expect(hint(null, null, false)).toBe("No calendar connected to this room.");
+  });
+});
+
+describe("roomTitle", () => {
+  it("is just the name of a room of the main office, or of a server that does not say the floor", () => {
+    expect(roomTitle({ label: "Meeting room" })).toBe("Meeting room");
+    expect(
+      roomTitle({
+        label: "Meeting room",
+        floor: "office",
+        floorName: "Main office",
+      }),
+    ).toBe("Meeting room");
+  });
+
+  it("says the floor for a room of any other, since two floors can have a room of the same name", () => {
+    expect(
+      roomTitle({ label: "Meeting room", floor: "hr", floorName: "People" }),
+    ).toBe("Meeting room · People");
+  });
+});
+
+describe("findRoom", () => {
+  const rooms = [
+    { label: "Meeting room", floor: "office" },
+    { label: "Meeting room", floor: "hr" },
+    { label: "Lab", floor: "hr" },
+  ];
+
+  it("finds the room of that name on the floor the player is on, not one of the same name on another", () => {
+    expect(findRoom(rooms, "Meeting room", "hr")).toBe(rooms[1]);
+    expect(findRoom(rooms, "Meeting room", "office")).toBe(rooms[0]);
+    expect(findRoom(rooms, "Lab", "office")).toBeUndefined();
+  });
+
+  it("goes by the name alone for a server that does not say the floors", () => {
+    const old = [{ label: "Meeting room" }];
+    expect(findRoom(old, "Meeting room", "office")).toBe(old[0]);
   });
 });

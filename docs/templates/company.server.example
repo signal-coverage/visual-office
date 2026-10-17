@@ -28,4 +28,7 @@ LIVEKIT_API_SECRET=
 # The company's short name, for example "acme". Needed if several companies share a LiveKit project
 VOICE_ROOM_PREFIX=
 
+# Recommended: the DSN of a Sentry project, to hear about the server's errors. Without it nothing is sent
+SENTRY_DSN=
+
 # Leave FLOOR_ADMIN_TOKEN out unless you need scripts: it gives full access to whoever holds it

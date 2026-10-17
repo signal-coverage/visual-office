@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { AuthResult } from "./authenticate.ts";
 import { handleFloorList } from "./floorList.ts";
 import { MemoryFloorStore } from "./floorStore.ts";
+import { MemoryGroupStore } from "./groupStore.ts";
 import { MemoryUserStore } from "./userStore.ts";
 
 describe("handleFloorList", () => {
   let floors: MemoryFloorStore;
   let users: MemoryUserStore;
+  let groups: MemoryGroupStore;
   let who: AuthResult | null;
   const call = (
     path = "/account/floors",
@@ -18,6 +20,7 @@ describe("handleFloorList", () => {
       {
         authenticate: async () => who,
         floors,
+        groups,
         rolesOf: (id) => users.rolesOf(id),
       },
     );
@@ -25,6 +28,7 @@ describe("handleFloorList", () => {
   beforeEach(async () => {
     floors = new MemoryFloorStore(() => 1);
     users = new MemoryUserStore();
+    groups = new MemoryGroupStore(() => 1, floors);
     await users.upsert({ id: "user_ana", email: null, name: "Ana" });
     await floors.create({ id: "hr", name: "People" });
     await floors.create({ id: "lab", name: "Lab" });
@@ -50,6 +54,36 @@ describe("handleFloorList", () => {
         { id: "lab", name: "Lab", common: false, canEnter: true },
       ],
     });
+  });
+
+  it("counts the rooms of the groups the person is in", async () => {
+    await groups.create({ id: "people", name: "People" });
+    await groups.setFloor("people", "hr", true);
+    expect(
+      ((await call())?.body.floors as Array<{ id: string; canEnter: boolean }>)
+        .filter((floor) => floor.id === "hr")
+        .map((floor) => floor.canEnter),
+    ).toEqual([false]);
+    await groups.setMember("people", "user_ana", true);
+    expect(
+      ((await call())?.body.floors as Array<{ id: string; canEnter: boolean }>)
+        .filter((floor) => floor.id === "hr")
+        .map((floor) => floor.canEnter),
+    ).toEqual([true]);
+  });
+
+  it("does not list an archived room, for anybody, and lists it again when it is brought back", async () => {
+    await users.setAdmin("user_ana", true);
+    await floors.archive("lab");
+    const ids = () =>
+      (async () =>
+        ((await call())?.body.floors as Array<{ id: string }>).map(
+          (floor) => floor.id,
+        ))();
+    expect(await ids()).toEqual(["office", "hr"]);
+    expect(JSON.stringify((await call())?.body)).not.toContain("Lab");
+    await floors.unarchive("lab");
+    expect(await ids()).toEqual(["office", "hr", "lab"]);
   });
 
   it("never lists who else has an entry, nor who is head", async () => {

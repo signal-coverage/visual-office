@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Furniture } from "./furniture.ts";
 import { OFFICE_FURNITURE, OFFICE_MODELS } from "./officeData.ts";
 import { findProblems } from "./officeProblems.ts";
+import type { Shell } from "./shell.ts";
 import type { PropPlacement } from "./props.ts";
 
 const item = (
@@ -153,5 +154,67 @@ describe("findProblems", () => {
     for (const problem of findProblems([item("desk", 14.6, 0)], [])) {
       expect(problem.message.trim().length).toBeGreaterThan(10);
     }
+  });
+});
+
+describe("findProblems on another shell", () => {
+  /** 24 by 16, a wall across the middle, a private room in the north-west corner and the spawn area in the south. */
+  const shell: Shell = {
+    width: 24,
+    depth: 16,
+    walls: [{ x: 4, z: 0, width: 0.2, depth: 6 }],
+    glass: [
+      { x: -4, z: -5.5, width: 0.15, depth: 4.65 },
+      { x: -8, z: -2, width: 8, depth: 0.15 },
+    ],
+    floors: [],
+    zones: [
+      {
+        id: "room",
+        label: "Room",
+        rect: { minX: -11.85, maxX: -4.075, minZ: -7.85, maxZ: -2.075 },
+      },
+    ],
+    areas: [],
+    boards: [],
+    screens: [],
+    spawn: { area: { minX: -2, maxX: 2, minZ: 5, maxZ: 6.5 }, yaw: 0 },
+  };
+  const on = (furniture: Furniture[], models: PropPlacement[] = []) =>
+    findProblems(furniture, models, shell).map((problem) => problem.code);
+
+  it("finds nothing wrong with an empty floor", () => {
+    expect(on([])).toEqual([]);
+  });
+
+  it("measures the walls of that floor: a desk that is fine in the default office sticks out here", () => {
+    expect(codes([item("desk", 13, 0)])).not.toContain("outside");
+    expect(on([item("desk", 13, 0)])).toContain("outside");
+  });
+
+  it("catches furniture inside a wall of that shell", () => {
+    expect(on([item("desk", 4, 0)])).toContain("wall");
+    expect(on([item("desk", 8, 0)])).not.toContain("wall");
+  });
+
+  it("catches furniture where people appear in that shell, and not where they appear by default", () => {
+    expect(on([item("desk", 0, 6)])).toContain("spawn");
+    expect(on([item("desk", 0, 8.5)])).not.toContain("spawn");
+    expect(codes([item("desk", 0, 6)])).not.toContain("spawn");
+  });
+
+  it("catches a private room nobody can walk into, by that shell's zones", () => {
+    const plants = [item("plant", -4, -2.9), item("plant", -4, -2.35)];
+    const found = findProblems(plants, [], shell).find(
+      (problem) => problem.code === "unreachable",
+    );
+    expect(found?.message).toMatch(/room/i);
+  });
+
+  it("does not look for rooms a shell does not have", () => {
+    const open: Shell = { ...shell, glass: [], zones: [], walls: [] };
+    expect(
+      findProblems([item("plant", -4, -3)], [], open).map((p) => p.code),
+    ).not.toContain("unreachable");
   });
 });

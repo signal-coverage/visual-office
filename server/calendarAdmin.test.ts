@@ -286,3 +286,94 @@ describe("handleCalendarAdmin", () => {
     expect(reply?.status).toBe(503);
   });
 });
+
+describe("handleCalendarAdmin on floors with rooms of their own", () => {
+  const rooms = [
+    {
+      id: "meeting",
+      label: "Meeting room",
+      floor: "office",
+      floorName: "Main office",
+    },
+    {
+      id: "hr.room-a",
+      label: "Meeting room A",
+      floor: "hr",
+      floorName: "People",
+    },
+  ];
+  const admin: Actor = { kind: "machine" };
+  let recorded: AuditInput[];
+  let store: MemorySettingsStore;
+  const call = (method: string, body?: unknown) => {
+    const calendar = createCalendarService({
+      store,
+      fetchFeed: async () => ({ ok: true, text: FEED }),
+      rooms: async () => rooms.map((room) => room.id),
+    });
+    return handleCalendarAdmin(
+      { method, path: "/admin/calendars", body, actor: admin },
+      {
+        calendar,
+        rooms: async () => rooms,
+        audit: async (entry) => {
+          recorded.push(entry);
+        },
+      },
+    );
+  };
+
+  beforeEach(() => {
+    recorded = [];
+    store = new MemorySettingsStore();
+  });
+
+  it("lists the rooms of every floor, with the floor of each", async () => {
+    const reply = await call("GET");
+    expect(reply?.body).toEqual({
+      rooms: [
+        {
+          room: "meeting",
+          label: "Meeting room",
+          floor: "office",
+          floorName: "Main office",
+          url: null,
+        },
+        {
+          room: "hr.room-a",
+          label: "Meeting room A",
+          floor: "hr",
+          floorName: "People",
+          url: null,
+        },
+      ],
+    });
+  });
+
+  it("saves the feed of another floor's room under its own key, and leaves the main office's alone", async () => {
+    await store.set("calendar_feed:meeting", SECRET_URL);
+    const reply = await call("POST", { room: "hr.room-a", url: SECRET_URL });
+    expect(reply?.status).toBe(200);
+    expect(await store.get("calendar_feed:hr.room-a")).toBe(SECRET_URL);
+    expect(await store.get("calendar_feed:meeting")).toBe(SECRET_URL);
+  });
+
+  it("refuses a room that exists on no floor", async () => {
+    expect(
+      (await call("POST", { room: "hr.nowhere", url: SECRET_URL }))?.status,
+    ).toBe(400);
+    expect(
+      (await call("POST", { room: "marketing.meeting", url: SECRET_URL }))
+        ?.status,
+    ).toBe(400);
+  });
+
+  it("notes the room by name and floor in the log, never the address", async () => {
+    await call("POST", { room: "hr.room-a", url: SECRET_URL });
+    expect(recorded[0]).toMatchObject({
+      action: "calendar.set",
+      detail: { room: "hr.room-a", label: "Meeting room A", floor: "People" },
+    });
+    expect(JSON.stringify(recorded)).not.toContain("SECRETTOKEN");
+  });
+});

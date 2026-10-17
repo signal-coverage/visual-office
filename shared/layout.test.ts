@@ -7,6 +7,7 @@ import {
 } from "./constants.ts";
 import {
   BOX_PIECES,
+  OFFICE_FLOOR,
   FURNITURE,
   MEETING_ROOM,
   MEETING_SCREEN,
@@ -16,7 +17,10 @@ import {
   sceneFor,
   WHITEBOARD,
 } from "./layout.ts";
+import { DEFAULT_SHELL, shellOrDefault } from "./defaultShell.ts";
 import { findProblems } from "./officeProblems.ts";
+import { type Shell } from "./shell.ts";
+import { shellColliders, shellPieces } from "./shellGeometry.ts";
 import { OFFICE_FURNITURE, OFFICE_MODELS } from "./officeData.ts";
 import { PROP_COLLIDERS, PROPS } from "./props.ts";
 import { SPAWN_AREA } from "./spawn.ts";
@@ -183,9 +187,9 @@ describe("sceneFor", () => {
       furniture: [{ kind: "desk", x: 0, z: 0, rotation: 0 }],
       models: [],
     });
-    expect(scene.shell).toEqual(empty.pieces);
-    expect(scene.shell).toEqual(empty.shell);
-    expect(scene.pieces.length).toBeGreaterThan(scene.shell.length);
+    expect(scene.shellPieces).toEqual(empty.pieces);
+    expect(scene.shellPieces).toEqual(empty.shellPieces);
+    expect(scene.pieces.length).toBeGreaterThan(scene.shellPieces.length);
   });
 
   it("lists the plants, so they can be drawn", () => {
@@ -241,5 +245,134 @@ describe("sceneFor interactables", () => {
     expect(
       sceneFor(structuredClone(layout)).interactables.map(({ id }) => id),
     ).toEqual(ids);
+  });
+});
+
+/** A floor that is not the default one: smaller, with two private rooms and no whiteboard in the first. */
+const SMALL: Shell = {
+  width: 24,
+  depth: 16,
+  walls: [{ x: 0, z: 0, width: 0.2, depth: 6 }],
+  glass: [{ x: -6, z: -4, width: 0.15, depth: 5 }],
+  floors: [],
+  zones: [
+    {
+      id: "left",
+      label: "Left room",
+      rect: { minX: -11.85, maxX: -6.075, minZ: -7.85, maxZ: -1.5 },
+    },
+    {
+      id: "right",
+      label: "Right room",
+      rect: { minX: 6, maxX: 11.85, minZ: -7.85, maxZ: -1.5 },
+    },
+  ],
+  areas: [
+    {
+      id: "all",
+      label: "Everything",
+      rect: { minX: -12, maxX: 12, minZ: -8, maxZ: 8 },
+    },
+  ],
+  boards: [
+    {
+      id: "right",
+      zone: "right",
+      facing: "west",
+      face: 11.85,
+      along: -4,
+      y: 1.6,
+      width: 2.6,
+      height: 1.3,
+    },
+  ],
+  screens: [],
+  spawn: { area: { minX: -2, maxX: 2, minZ: 5, maxZ: 6.5 }, yaw: 0 },
+};
+
+describe("sceneFor with a shell", () => {
+  it("uses the default shell for a layout that has none", () => {
+    const scene = sceneFor({ furniture: [], models: [] });
+    expect(scene.shell).toEqual(DEFAULT_SHELL);
+    expect(scene.shellPieces).toEqual(shellPieces(DEFAULT_SHELL));
+    expect(scene.zones.map((zone) => zone.id)).toEqual(["meeting"]);
+    expect(scene.boards.map((board) => board.id)).toEqual(["meeting"]);
+    expect(scene.screens.map((screen) => screen.id)).toEqual(["meeting"]);
+    expect(scene.spawn).toEqual(DEFAULT_SHELL.spawn);
+    expect(scene.floor).toEqual(OFFICE_FLOOR);
+  });
+
+  it("builds everything from the shell the layout carries", () => {
+    const scene = sceneFor({ furniture: [], models: [], shell: SMALL });
+    expect(scene.shell).toEqual(SMALL);
+    expect(scene.shellPieces).toEqual(shellPieces(SMALL));
+    expect(scene.colliders).toEqual(shellColliders(SMALL));
+    expect(scene.zones.map((zone) => zone.id)).toEqual(["left", "right"]);
+    expect(scene.areas.map((area) => area.label)).toEqual(["Everything"]);
+    expect(scene.boards.map((board) => board.id)).toEqual(["right"]);
+    expect(scene.screens).toEqual([]);
+    expect(scene.floor).toEqual({
+      minX: -11.85,
+      maxX: 11.85,
+      minZ: -7.85,
+      maxZ: 7.85,
+    });
+    expect(scene.spawn).toEqual(SMALL.spawn);
+  });
+
+  it("blocks and draws walls the default shell does not have", () => {
+    const scene = sceneFor({ furniture: [], models: [], shell: SMALL });
+    const wall = scene.colliders.find(
+      (box) => box.minX === -0.1 && box.maxX === 0.1,
+    );
+    expect(wall).toEqual({ minX: -0.1, maxX: 0.1, minZ: -3, maxZ: 3 });
+    expect(scene.shellPieces.some((piece) => piece.opacity !== undefined)).toBe(
+      true,
+    );
+  });
+
+  it("sanitizes the shell: what is not a shell, or is a broken one, becomes the default", () => {
+    const fallback = sceneFor({ furniture: [], models: [] }).shell;
+    for (const shell of [
+      null,
+      "x",
+      {},
+      { ...SMALL, width: 5 },
+      { ...SMALL, zones: [{ ...SMALL.zones[0] }, { ...SMALL.zones[0] }] },
+      {
+        ...SMALL,
+        spawn: { area: { minX: -9, maxX: -8, minZ: -6, maxZ: -5 }, yaw: 0 },
+      },
+    ]) {
+      expect(
+        sceneFor({ furniture: [], models: [], shell: shell as never }).shell,
+        JSON.stringify(shell),
+      ).toEqual(fallback);
+    }
+  });
+
+  it("keeps the interactables and plants as they were: they come from the furniture alone", () => {
+    const layout = {
+      furniture: [
+        { kind: "chair", x: 0, z: 1, rotation: 0 },
+        { kind: "plant", x: 3, z: 3, rotation: 0 },
+      ],
+      models: [],
+    } as Layout;
+    const plain = sceneFor(layout);
+    const small = sceneFor({ ...layout, shell: SMALL });
+    expect(small.interactables).toEqual(plain.interactables);
+    expect(small.plants).toEqual(plain.plants);
+  });
+});
+
+describe("shellOrDefault", () => {
+  it("gives a good shell back, as sanitized", () => {
+    expect(shellOrDefault(JSON.parse(JSON.stringify(SMALL)))).toEqual(SMALL);
+  });
+
+  it("gives the default for anything else", () => {
+    expect(shellOrDefault(undefined)).toBe(DEFAULT_SHELL);
+    expect(shellOrDefault({ width: 20 })).toBe(DEFAULT_SHELL);
   });
 });

@@ -6,7 +6,9 @@ import {
 } from "../../shared/chat.ts";
 import { MUTED_NOTICE, UNMUTED_NOTICE } from "../../shared/moderation.ts";
 import { isIdle } from "../../shared/presence.ts";
+import { shellOrDefault } from "../../shared/defaultShell.ts";
 import { buildRoster, type Roster } from "../../shared/roster.ts";
+import { ZONES, zonesOf, type Zone } from "../../shared/zones.ts";
 import { CallController } from "../game/CallController";
 import { COMMON_FLOOR_ID } from "../../shared/floors.ts";
 import { connect, type Connection } from "../game/network";
@@ -40,6 +42,8 @@ export class LiteSession {
   private disposed = false;
   private events: LiteEvents | null = null;
   private readonly others = new Set<string>();
+  /** The private zones of the floor, for the names in the list of people. */
+  private zones: readonly Zone[] = ZONES;
   private lastInputAt = performance.now();
   private idle = false;
   private tick: ReturnType<typeof setInterval> | undefined;
@@ -79,7 +83,8 @@ export class LiteSession {
           this.others.delete(id);
         },
         onPlayers: (players, selfId) => {
-          if (!this.disposed) events.onRoster(buildRoster(players, selfId));
+          if (!this.disposed)
+            events.onRoster(buildRoster(players, selfId, this.zones));
         },
         onChat: (message, mine) => {
           if (!this.disposed) events.onChat(message, mine);
@@ -104,7 +109,10 @@ export class LiteSession {
         onStatus: () => {},
         onEmote: () => {},
         onFloor: () => {},
-        onLayout: () => {},
+        onLayout: (layout) => {
+          // Only the names of the rooms matter here: the lite screen draws nothing
+          this.zones = zonesOf(shellOrDefault(layout.shell));
+        },
         onClosing: () => {},
         onReopened: () => {},
         onModerator: () => {},

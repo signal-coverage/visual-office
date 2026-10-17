@@ -114,6 +114,31 @@ describe("startAutoQuality", () => {
     expect(startAutoQuality(false).level).toBe("high");
     expect(startAutoQuality(true).level).toBe("low");
   });
+
+  it("starts on low on a phone or tablet, which has less to give and a battery to spare", () => {
+    expect(startAutoQuality(false, true).level).toBe("low");
+    expect(startAutoQuality(true, true).level).toBe("low");
+  });
+
+  it("keeps the usual start where there is a mouse", () => {
+    expect(startAutoQuality(false, false).level).toBe("high");
+  });
+
+  it("on a phone, auto is low from the first frame: shadows off, pixel ratio capped", () => {
+    const { level } = startAutoQuality(false, true);
+    expect(
+      resolveLevel("auto", { softwareRendering: false, autoLevel: level }),
+    ).toBe("low");
+    expect(QUALITY_PROFILES.low.shadows).toBe(false);
+    expect(pixelRatioFor("low", 3)).toBe(1);
+  });
+
+  it("a person who picks High on a phone gets it", () => {
+    const { level } = startAutoQuality(false, true);
+    expect(
+      resolveLevel("high", { softwareRendering: false, autoLevel: level }),
+    ).toBe("high");
+  });
 });
 
 describe("stepAutoQuality", () => {

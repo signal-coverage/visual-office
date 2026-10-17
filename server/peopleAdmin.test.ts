@@ -4,6 +4,7 @@ import type { AuditInput } from "./auditStore.ts";
 import { MemoryBanStore } from "./banStore.ts";
 import { handlePeopleAdmin } from "./peopleAdmin.ts";
 import { MemoryFloorStore } from "./floorStore.ts";
+import { MemoryGroupStore } from "./groupStore.ts";
 import { MemoryUserStore } from "./userStore.ts";
 
 const person = (
@@ -389,5 +390,89 @@ describe("people and the rooms they can enter", () => {
     expect(changed).toEqual([["lab", "user_beto"]]);
     await call(false);
     expect(changed).toEqual([["lab", "user_beto"]]);
+  });
+});
+
+describe("people, groups and archived rooms", () => {
+  const setup = async () => {
+    const users = new MemoryUserStore();
+    await users.upsert({ id: "user_ana", email: null, name: "Ana" });
+    await users.upsert({ id: "user_beto", email: null, name: "Beto" });
+    await users.upsert({ id: "user_cris", email: null, name: "Cris" });
+    await users.setAdmin("user_cris", true);
+    const floors = new MemoryFloorStore(() => 1);
+    await floors.create({ id: "hr", name: "People" });
+    await floors.create({ id: "lab", name: "Lab" });
+    await floors.create({ id: "old", name: "Old" });
+    await floors.grant("lab", "user_ana");
+    await floors.grant("old", "user_ana");
+    await floors.archive("old");
+    const groups = new MemoryGroupStore(() => 1, floors);
+    await groups.create({ id: "people", name: "Human Resources" });
+    await groups.setFloor("people", "hr", true);
+    await groups.setFloor("people", "lab", true);
+    await groups.setFloor("people", "old", true);
+    await groups.setMember("people", "user_ana", true);
+    await groups.setMember("people", "user_beto", true);
+    const deps = {
+      users,
+      knownFloors: ["office", "hr", "lab", "old"],
+      floors,
+      groups,
+    };
+    const list = async () => {
+      const reply = await handlePeopleAdmin(
+        { method: "GET", path: "/admin/people", actor: { kind: "machine" } },
+        deps,
+      );
+      const people = reply?.body.people as Array<Record<string, unknown>>;
+      return {
+        reply,
+        byId: Object.fromEntries(people.map((p) => [p.id, p])),
+      };
+    };
+    return { list };
+  };
+
+  it("leaves archived rooms out of the rooms to choose from", async () => {
+    const { list } = await setup();
+    const { reply } = await list();
+    expect(
+      (reply?.body.floorInfo as Array<{ id: string }>).map((f) => f.id),
+    ).toEqual(["office", "hr", "lab"]);
+  });
+
+  it("says for each person which groups they are in", async () => {
+    const { list } = await setup();
+    const { byId } = await list();
+    expect(byId.user_ana.groups).toEqual([
+      { id: "people", name: "Human Resources" },
+    ]);
+    expect(byId.user_cris.groups).toEqual([]);
+  });
+
+  it("counts the rooms of the groups in what each person can enter, with the source of every entry", async () => {
+    const { list } = await setup();
+    const { byId } = await list();
+    expect(byId.user_ana).toMatchObject({
+      access: ["lab", "old"],
+      canEnter: ["office", "hr", "lab"],
+      effectiveAccess: [
+        { floor: "hr", sources: ["group:Human Resources"] },
+        { floor: "lab", sources: ["direct", "group:Human Resources"] },
+      ],
+    });
+    expect(byId.user_beto).toMatchObject({
+      access: [],
+      canEnter: ["office", "hr", "lab"],
+      effectiveAccess: [
+        { floor: "hr", sources: ["group:Human Resources"] },
+        { floor: "lab", sources: ["group:Human Resources"] },
+      ],
+    });
+    expect(byId.user_cris).toMatchObject({
+      canEnter: ["office", "hr", "lab"],
+      effectiveAccess: [],
+    });
   });
 });

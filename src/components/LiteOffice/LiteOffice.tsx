@@ -21,7 +21,7 @@ import { defaultAppearance } from "../../../shared/appearance.ts";
 import type { ChatScope } from "../../../shared/chat.ts";
 import { MAX_NAME_LENGTH, sanitizeName } from "../../../shared/name.ts";
 import type { Roster } from "../../../shared/roster.ts";
-import { MAX_STORED_MESSAGES } from "../../App/consts";
+import { MAX_STORED_MESSAGES, NOTICE_MS } from "../../App/consts";
 import {
   loadAppearance,
   loadSavedName,
@@ -58,6 +58,7 @@ import {
   TITLE,
   TRY_OFFICE_LABEL,
   VOICE_LABELS,
+  VOICE_UNAVAILABLE,
 } from "./consts";
 import * as styles from "./styles";
 import type { LiteOfficeProps, LitePhase } from "./types";
@@ -121,11 +122,26 @@ export function LiteOffice({ reason, signedIn, onTryOffice }: LiteOfficeProps) {
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [unread, setUnread] = useState(0);
   const [voiceState, setVoiceState] = useState<VoiceState>("unavailable");
+  /** Why the call failed, as long as it has: it stays beside the voice button instead of fading like a notice. */
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voiceStateRef = useRef<VoiceState>("unavailable");
   const [micSteps, setMicSteps] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [alert, setAlert] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+
+  // A notice goes away by itself; a new one restarts the countdown
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  useEffect(() => {
+    if (!alert) return;
+    const timer = setTimeout(() => setAlert(null), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [alert]);
 
   const getToken = signedIn?.getToken ?? noToken;
   const tokenOf = useCallback(() => getToken(), [getToken]);
@@ -161,6 +177,8 @@ export function LiteOffice({ reason, signedIn, onTryOffice }: LiteOfficeProps) {
     setMessages([]);
     setUnread(0);
     setVoiceState("unavailable");
+    voiceStateRef.current = "unavailable";
+    setVoiceError(null);
     setMicSteps(0);
     setReconnecting(false);
 
@@ -183,9 +201,16 @@ export function LiteOffice({ reason, signedIn, onTryOffice }: LiteOfficeProps) {
               if (notify) setAlert(toastText(chat));
             },
             onRoster: setRoster,
-            onVoiceState: setVoiceState,
+            onVoiceState: (state) => {
+              voiceStateRef.current = state;
+              setVoiceState(state);
+              if (state !== "error") setVoiceError(null);
+            },
             onMicLevel: setMicSteps,
-            onNotice: setNotice,
+            onNotice: (text) => {
+              if (voiceStateRef.current === "error") setVoiceError(text);
+              else setNotice(text);
+            },
             onReconnecting: setReconnecting,
             onDisconnected: (code) => {
               setReconnecting(false);
@@ -338,6 +363,16 @@ export function LiteOffice({ reason, signedIn, onTryOffice }: LiteOfficeProps) {
           className={styles.voiceInPlace}
           labels={VOICE_LABELS}
         />
+        {voiceState === "error" && voiceError && (
+          <p className={styles.voiceNote} role="status">
+            {voiceError}
+          </p>
+        )}
+        {voiceState === "unavailable" && (
+          <p className={styles.voiceNote} role="status">
+            {VOICE_UNAVAILABLE}
+          </p>
+        )}
         <UserList roster={roster} className={styles.inPlace} />
         <Lists />
       </div>

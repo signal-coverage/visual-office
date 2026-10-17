@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Appearance } from "../../shared/appearance.ts";
+import type { ControlsMode } from "../lite/device";
 /** lobby: name screen · connecting: joining · online: playing · offline: failed or dropped */
 export type Phase = "lobby" | "connecting" | "online" | "offline";
 
@@ -31,6 +32,8 @@ export interface SignedInUser {
   onOpenCalendars?: () => void;
   /** Opens where rooms are made and named: only for admins. */
   onManageRooms?: () => void;
+  /** Opens where role groups (sets of rooms for sets of people) are set: only for admins. */
+  onManageGroups?: () => void;
   /** Opens where the books and announcements of the computers and shelves are set: only for admins and heads of floors. */
   onManageContent?: () => void;
   /** The player is in this room (its id) now: the editor offered on the first screen is the one of the last room they were in. */
@@ -40,4 +43,6 @@ export interface SignedInUser {
 export interface AppProps {
   /** Set when the office asks people to sign in; without it, anybody may enter. */
   signedIn?: SignedInUser;
+  /** What the office is walked with: the keyboard and the mouse (the default), or fingers on the screen. */
+  controls?: ControlsMode;
 }

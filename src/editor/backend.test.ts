@@ -41,6 +41,15 @@ describe("devBackend", () => {
     expect(backend.publishUrl).toBe("/__editor/floor/publish");
   });
 
+  it("can edit another room, through its own routes", () => {
+    const backend = devBackend("marketing");
+    expect(backend.floorBase).toBe("/__editor/floors/marketing");
+    expect(backend.layoutUrl).toBe("/__editor/floors/marketing/layout");
+    expect(backend.publishUrl).toBe("/__editor/floors/marketing/publish");
+    expect(backend.floor).toBe("marketing");
+    expect(devBackend().floor).toBeUndefined();
+  });
+
   it("has the tools that only make sense on a developer's machine", () => {
     expect(devBackend().devTools).toBe(true);
   });

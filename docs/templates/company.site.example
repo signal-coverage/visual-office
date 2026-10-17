@@ -8,3 +8,7 @@ VITE_SERVER_URL=
 
 # The company's Clerk publishable key "pk_..."
 VITE_CLERK_PUBLISHABLE_KEY=
+
+# Recommended: the DSN of a Sentry project for the browser's errors. Without it the site never loads
+# the reporter nor calls Sentry. Fixed when the site is built: deploy again after changing it
+VITE_SENTRY_DSN=

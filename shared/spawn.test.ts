@@ -45,3 +45,14 @@ describe("randomSpawn", () => {
     expect(a).not.toEqual(b);
   });
 });
+
+describe("randomSpawn in another area", () => {
+  const area = { minX: 10, maxX: 12, minZ: -3, maxZ: -2 };
+
+  it("covers that area from corner to corner", () => {
+    expect(randomSpawn(() => 0, area)).toEqual({ x: 10, z: -3 });
+    const max = randomSpawn(() => 1, area);
+    expect(max.x).toBeCloseTo(12);
+    expect(max.z).toBeCloseTo(-2);
+  });
+});

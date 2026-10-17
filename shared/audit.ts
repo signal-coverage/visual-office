@@ -17,6 +17,13 @@ export const AUDIT_ACTIONS = [
   "floor.create",
   "floor.rename",
   "floor.access",
+  "floor.archive",
+  "floor.unarchive",
+  "group.create",
+  "group.rename",
+  "group.delete",
+  "group.member",
+  "group.floor",
   "settings.allow_name_edit",
   "company.setup",
   "calendar.set",
@@ -93,9 +100,14 @@ export function describeAudit(entry: AuditEntry): string {
       return `${actor} removed ${who} as head of ${where}`;
     case "floor.create": {
       const name = typeof detail.name === "string" ? detail.name : null;
+      // The default template is the office every room had before there were templates
+      const from =
+        typeof detail.template === "string" && detail.template !== "office"
+          ? ` from the ${detail.template} template`
+          : "";
       return name
-        ? `${actor} made the room ${name} (${where})`
-        : `${actor} made the room ${where}`;
+        ? `${actor} made the room ${name} (${where})${from}`
+        : `${actor} made the room ${where}${from}`;
     }
     case "floor.rename": {
       const from = typeof detail.from === "string" ? detail.from : null;
@@ -103,6 +115,46 @@ export function describeAudit(entry: AuditEntry): string {
       return from && to
         ? `${actor} renamed the room ${from} to ${to} (${where})`
         : `${actor} renamed the room ${where}`;
+    }
+    case "floor.archive":
+    case "floor.unarchive": {
+      const name = typeof detail.name === "string" ? detail.name : null;
+      const verb =
+        entry.action === "floor.archive" ? "archived" : "brought back";
+      return name
+        ? `${actor} ${verb} the room ${name} (${where})`
+        : `${actor} ${verb} the room ${where}`;
+    }
+    case "group.create":
+    case "group.delete": {
+      const name = typeof detail.name === "string" ? detail.name : null;
+      const verb = entry.action === "group.create" ? "made" : "deleted";
+      return name
+        ? `${actor} ${verb} the group ${name}`
+        : `${actor} ${verb} a group`;
+    }
+    case "group.rename": {
+      const from = typeof detail.from === "string" ? detail.from : null;
+      const to = typeof detail.to === "string" ? detail.to : null;
+      return from && to
+        ? `${actor} renamed the group ${from} to ${to}`
+        : `${actor} renamed a group`;
+    }
+    case "group.member": {
+      const name = typeof detail.name === "string" ? detail.name : null;
+      if (!name || typeof detail.member !== "boolean")
+        return `${actor} changed the members of a group`;
+      return detail.member
+        ? `${actor} added ${who} to the group ${name}`
+        : `${actor} removed ${who} from the group ${name}`;
+    }
+    case "group.floor": {
+      const name = typeof detail.name === "string" ? detail.name : null;
+      if (!name || typeof detail.allowed !== "boolean" || !floor)
+        return `${actor} changed the rooms of a group`;
+      return detail.allowed
+        ? `${actor} let the group ${name} enter ${floor}`
+        : `${actor} stopped the group ${name} entering ${floor}`;
     }
     case "floor.access":
       return detail.allowed === true
@@ -116,8 +168,15 @@ export function describeAudit(entry: AuditEntry): string {
       return `${actor} set the company up`;
     case "calendar.set":
     case "calendar.clear": {
+      const named =
+        typeof detail.label === "string"
+          ? typeof detail.floor === "string"
+            ? `${detail.label} (${detail.floor})`
+            : detail.label
+          : null;
       const room =
-        typeof detail.room === "string" ? zoneLabel(detail.room) : "a room";
+        named ??
+        (typeof detail.room === "string" ? zoneLabel(detail.room) : "a room");
       return entry.action === "calendar.set"
         ? `${actor} set the calendar of ${room}`
         : `${actor} removed the calendar of ${room}`;
