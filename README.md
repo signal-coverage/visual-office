@@ -14,7 +14,7 @@ Think WorkAdventure, but in 3D.
 - Knock (K, or the menu): at a private room's door it tells the people inside, otherwise it tells the person you face within 3 m; one every 5 seconds, never to do-not-disturb people
 - Presence status (available, in a meeting, do not disturb, away): a coloured dot on the name tag and in the people list; change it with Z or from the menu. Away comes by itself after 5 minutes without input, and in a meeting while you are in the meeting room, unless you chose something else
 - Emotes (wave, clap, raise hand, thumbs up, dance): hold E and press 1 to 5, or use the menu; everybody sees the avatar's arms move and an icon float above the head for 3 seconds
-- Interactions: look at a chair, a desk, a bookshelf or a plant within 2.5 m and a hint tells what **F** (or a left click) does. Chairs are opt-in seats: sit down, and get up with F, Space, W A S D or by opening the menu. A computer shows the announcements of the room's floor and a bookshelf lets you read its books; admins (and the head of each floor) set both up from **Content** in the lobby (plain text, https links only; see `docs/BUILDING.md`, 7c)
+- Interactions: look at a chair, a desk, a bookshelf or a plant within 2.5 m and a hint tells what **F** (or a left click) does. Chairs are opt-in seats: sit down, and get up with F, Space, W A S D or by opening the menu. A computer shows the announcements of the room's floor and a bookshelf lets you read its books; admins (and the head of each floor) set both up from **Administration > Content** in the main menu (plain text, https links only; see `docs/BUILDING.md`, 7c)
 - Proximity voice chat (M): full volume within 2 m, silent beyond 10 m
 - Proximity video (C): a camera replaces the face of whoever is within 6 m (the hair stays on top)
 - Microphone meter next to the voice button, read from the sound that is really being sent
@@ -27,7 +27,7 @@ Think WorkAdventure, but in 3D.
 - Rooms: several floors, one common room everybody may enter, entries for the others (one by one, or through role groups such as "Human Resources"), rename and archive rooms from the admin screen, travel from the menu or the map (R)
 - Roles: admins and the head of each floor may edit it; admins name the heads from the game
 - Moderation: admins, and the head of a floor on their own floor, can mute somebody's microphone, remove them from the office or ban them for a few minutes, from the game menu or the People screen. The server checks it every time; admins cannot be moderated
-- Activity log: admins see who did what (moderation, closing and publishing floors, naming heads, company settings) in the **Activity** screen of the lobby
+- Activity log: admins see who did what (moderation, closing and publishing floors, naming heads, company settings) in the **Activity** screen (main menu, **Administration**)
 - Room calendars: an admin pastes the iCalendar (ICS) feed of each private room; the room badge then shows what is on now and next, and the **Room calendars** screen of the menu lists the day. Read-only, no OAuth, no booking
 - Office editor: move, turn and add furniture and your own models on a plan seen from above, with warnings when something is wrong. Inside the game for heads and admins; on a developer's machine for everybody
 - Layouts kept in a database with versions: publish, go back to an earlier one, vouch for a known-good one
@@ -38,9 +38,7 @@ Think WorkAdventure, but in 3D.
 - Graphics quality (Esc, Options): Auto, High or Low. Low turns off shadows, caps the resolution at 1x and updates far-away people less often; Auto picks Low on software rendering or after about 4 s of frames under 30 fps, and never goes back up by itself
 - Phones and tablets get the full 3D office with touch controls (a joystick on the left, drag to look on the right, a column of buttons for the chat, the voice call, the camera, the people list, the map of rooms, emotes, knock and the menu, and a big button to use what is in front of you or to stand up). Graphics start on Low there. Built and tested with an emulated phone in Chromium, **not on a real phone** yet: see [Known limitations](#known-limitations)
 - Lite mode: a device with no WebGL, or a narrow window with a mouse, gets a lite screen instead of the 3D office: who is online, chat, room calendars and the voice call (listen **and speak**: the microphone is asked for only when you press Join voice). No 3D view, no movement, no camera, no screen sharing. A phone can ask for it from the menu. `?view=lite` / `?view=office` in the link force one or the other (the office cannot be forced without WebGL), and `?controls=touch|mouse` forces the touch controls or the mouse
-- Lobby with a name and a character creator in tabs (skin; hair style and colour; facial hair and glasses;
-  top, shirt, pants and shoes; headwear and an accessory), with a live 3D preview you can drag round;
-  your choice is remembered on this browser
+- Main menu as the first screen, like a video game: the title, four options on the left (**Enter the office**, **Enter a different office**, **Customize character**, **Exit**) and the turning 3D character on the right, plus an **Administration** entry for those with admin tools. **Customize character** is the character creator in tabs (skin; hair style and colour; facial hair and glasses; top, shirt, pants and shoes; headwear and an accessory), with a live 3D preview you can drag round and a name field (locked unless the company lets people choose); your choice is remembered on this browser. **Enter a different office** is the map of rooms before joining (see section 7e of [docs/BUILDING.md](docs/BUILDING.md))
 - Automatic reconnection and clear disconnect handling
 
 Built for desktop browsers. Phones and tablets are supported with touch controls (see above), but they have only been tried in an emulated phone, not on real ones.
@@ -55,7 +53,7 @@ npm run dev:all
 ```
 
 Open <http://localhost:5173>, pick a name and enter. Open a second tab (or share the link on your
-network) to see another player. A link like `http://localhost:5173/?name=Ana` skips the lobby and
+network) to see another player. A link like `http://localhost:5173/?name=Ana` skips the main menu and
 uses the look saved on this browser, or one made from the name.
 
 `dev:all` starts three processes:
@@ -193,7 +191,7 @@ behind `import.meta.env.DEV`, so `npm run build` leaves it out (`__e2e` is not i
 
 | Spec              | What it proves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `01-lobby`        | Name field, the five character tabs, a shirt picked in the lobby is the look worn inside, dragging the preview turns it, entering the office                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `01-lobby`        | The main menu loads; Customize character shows the name field and the five tabs, a shirt picked there is the look worn inside, dragging the preview turns it, entering the office                                                                                                                                                                                                                                                                                                                                                                                               |
 | `02-menu`         | Losing the mouse opens the menu, Esc closes it and the click prompt shows until the mouse is given back, options survive a reload, Save is enabled only for a new look                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `03-character`    | A hair style, glasses and hat saved by Ana are what Beto's page has for her                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `04-presence`     | Do not disturb and Z show in Beto's people list, an emote floats its icon over Ana in Beto's view                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -205,6 +203,7 @@ behind `import.meta.env.DEV`, so `npm run build` leaves it out (`__e2e` is not i
 | `08-regressions`  | Clicking while walking diagonally keeps moving, Esc with a panel open does not open the menu, the lite screen on a touch phone (asked for with `?view=lite`)                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `13-touch`        | An emulated phone (touch only, 390x844 and 844x390): the 3D office loads (not the lite screen), no click prompt and no mouse capture, the first-run hint, the joystick walks and runs, the right thumb looks (clamped), two thumbs at once, Use sits and Stand gets up (also by tapping the chair or pushing the joystick), the menu and the chat from their buttons (nothing moves behind them), emotes, knock, people list, no sideways scroll or zoom, Low quality at start, every control on screen, 44 px or more and not on another, the lite view from the menu and back |
 | `14-lite-voice`   | The lite screen offers the microphone, asks for nothing before the press, shows why the call failed and can retry; says voice is not available when the server sends no call; the list of what works and what does not                                                                                                                                                                                                                                                                                                                                                          |
+| `15-main-menu`    | The first screen: title, the four options and the turning character with no pickers, keyboard navigation, Customize character saves and Back returns, Enter the office joins, Enter a different office shows the map and joining the second room gives a roster of its own, the single-office rule, Exit and its farewell, a phone in both orientations with no scroll or overlap                                                                                                                                                                                               |
 
 **Not covered:** sign-in (Clerk) and everything that depends on a role (the room a person may not
 enter is a skipped test for that reason), voice and video that really connect (LiveKit: there is none, so
@@ -232,8 +231,8 @@ the repository settings (Branches → branch protection).
 
 ```text
 src/            Web client (Vite + React + Three.js)
-  App/            Lobby → connecting → online state machine
-  components/     ChatPanel, LobbyScreen, AvatarPreview, AppearancePicker, UserList,
+  App/            First screen (main menu) → connecting → online state machine
+  components/     ChatPanel, FirstScreen, MainMenu, CharacterScreen, AvatarPreview, AppearancePicker, UserList,
                   VoiceIndicator, ZoneIndicator, AuthRoot (sign-in), GameEditor,
                   PeopleAdmin, ClosingBanner
   game/           Three.js scene, controls, collisions, networking, voice
@@ -346,7 +345,7 @@ glTF 2.0 binary under 20 MB, and a model that already has that name is only repl
 The **page** `editor.html` and the endpoints it uses (save, upload, the list of models, forwarding to
 the game server) exist only under `npm run dev`: the production build contains none of them, and
 they only answer on `localhost`. **Inside the game** the same editor is offered to the heads of a
-floor and to admins (button _Edit this floor_ in the lobby), talking to the game server with their
+floor and to admins (**Administration > Edit this floor** in the main menu), talking to the game server with their
 sign-in; it leaves out what writes files (upload, Save to file, Export). See
 [docs/BUILDING.md](docs/BUILDING.md).
 
@@ -402,7 +401,7 @@ _Limits:_ bans are kept in the database (`bans` table), so they survive a restar
 The app is a building for a company: **each floor is one area's office** (marketing, sales,
 development…), and only its head, or an admin, can edit it. Sign-in, roles, stored layouts with
 versions, the floor lock and the editor inside the game exist, and so do **several floors**: an
-admin makes, renames and archives rooms (lobby, _Rooms_), says who may enter each (_People_, "Can enter", or a role group in _Groups_), everybody can
+admin makes, renames and archives rooms (main menu, **Administration > Rooms**), says who may enter each (_People_, "Can enter", or a role group in _Groups_), everybody can
 enter the common room, and people travel from the Esc menu (_Rooms_). Each
 company has its own installation ([docs/COMPANIES.md](docs/COMPANIES.md)). The full design is in
 [docs/BUILDING.md](docs/BUILDING.md).
@@ -485,7 +484,7 @@ Things worth knowing about private zones:
 
 ### Room calendars
 
-Each private room can show what is happening in it. There is **no OAuth and no Google or Microsoft API**: an admin pastes an iCalendar (ICS) feed address per room in the lobby's **Calendars** screen (Google Calendar: "Secret address in iCal format"; Outlook: a published calendar). Details and limits in [docs/BUILDING.md](docs/BUILDING.md).
+Each private room can show what is happening in it. There is **no OAuth and no Google or Microsoft API**: an admin pastes an iCalendar (ICS) feed address per room in the **Calendars** screen (main menu, **Administration**) (Google Calendar: "Secret address in iCal format"; Outlook: a published calendar). Details and limits in [docs/BUILDING.md](docs/BUILDING.md).
 
 - Server: [`server/ics.ts`](server/ics.ts) (parser), [`server/calendarFetch.ts`](server/calendarFetch.ts) (fetcher with SSRF protection), [`server/calendarService.ts`](server/calendarService.ts) (storage in `settings` as `calendar_feed:<room>`, 5-minute cache; the room is the zone id for the main office and `<floor>.<zone>` for any other floor), `GET|POST /admin/calendars` (admins) and `GET /calendar` (members: titles and times only, never the address).
 - Client: a one-line badge under the zone badge, the **Room calendars** item of the Esc menu, and the admin screen; both screens are lazy-loaded.

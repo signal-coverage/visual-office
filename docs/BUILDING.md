@@ -144,8 +144,8 @@ older client, the lite screen).
   If a company would rather hide it, return a blank card for the floors where `canEnter` is false
   (filter in `createFloorPreviews` by the roles, as `handleFloorList` does) and the card draws a
   grey empty floor, which is what it already does while plans load or fail.
-- **The editor** edits the floor you are in. The lobby button edits the floor you were last in (the
-  common one at first), and the same goes for entering from the lobby.
+- **The editor** edits the floor you are in. The **Administration > Edit this floor** entry of the main menu edits the floor you were last in (the
+  common one at first), and the same goes for **Enter the office** (when that floor still exists and you may enter it).
 - **Capacity**: each floor keeps its own 30-player limit and its own voice rooms.
 
 _Instead of one room per floor in one process_ (if the building grows): run floors as separate game
@@ -185,7 +185,7 @@ memory and a Postgres twin (`server/groupStore.ts`, `server/pgGroupStore.ts`) te
   Taking away a person, a room or a whole group calls `recheckAccess` for every affected person and room, so
   somebody who loses their only way in is moved out like a revoked entry (code 4008). `GET /admin/people`
   also answers, per person, `groups` and `effectiveAccess`.
-- **UI** (lazy chunks): **Groups** in the lobby (admins): a table and a modal editor (name, rooms as checkboxes,
+- **UI** (lazy chunks): **Groups** in the main menu's Administration (admins): a table and a modal editor (name, rooms as checkboxes,
   people as a searchable checkbox list; delete asks first); the People screen shows each person's group chips
   and a "via <group>" chip on the rooms a group gives (the checkbox is checked and disabled when the group is
   the only way in, and still works when there is an entry of their own). Form checks are pure and tested
@@ -244,7 +244,7 @@ everybody may enter, as before (development without an account).
   ones come from `ADMIN_EMAILS` (comma separated) and only a **verified** email counts, since
   anybody can type another person's address.
 - **The name comes from the profile, never from the client.** The server calls the player what the
-  profile says (full name, then username, then the part of the email before the `@`); the lobby
+  profile says (full name, then username, then the part of the email before the `@`); the main menu
   shows it read-only. The token only carries the user id, so the profile is asked of Clerk and
   remembered for ten minutes (and for people already known, used as it is if Clerk cannot answer).
 - **Tokens last about a minute**, so the game asks for a fresh one each time it joins, never
@@ -270,7 +270,7 @@ everybody may enter, as before (development without an account).
 Checked with real tokens: a member is refused, a head can lock, publish, vouch and open, and an
 admin made by `ADMIN_EMAILS` (any case) can too, with no floor of their own.
 
-**Done: the editor inside the game.** Heads and admins see **Edit this floor** in the lobby; nobody
+**Done: the editor inside the game.** Heads and admins see **Edit this floor** in the Administration of the main menu; nobody
 else is offered it. It opens the same plan editor, which loads as its own small chunk (about 11 kB
 gzipped) only for the people who may use it.
 
@@ -298,7 +298,7 @@ without the developer tools, Start editing closes the floor, Publish stores a ve
 their user id, Finish editing opens it, and the game shows what was published. With no role the
 button is not offered.
 
-**Done: naming heads from the game.** Admins see **Manage people** in the lobby: a list of everybody
+**Done: naming heads from the game.** Admins see **Manage people** in the Administration of the main menu: a list of everybody
 who has signed in, with a checkbox per floor for "head of this floor". Only admins are offered it
 (`canManage` in the `access` answer) and only admins can use it: the server answers 403 to anybody
 else, a floor's head included, since the list holds everybody's email.
@@ -317,7 +317,7 @@ the people list and for naming heads, and can still close and open their floor.
 
 **Done: letting people choose their name.** With sign-in on, everybody is called what their profile
 says. An admin can turn on the company setting **Let people choose their own name** (**Settings** in
-the lobby, admins only); the lobby then lets everybody type the name others see.
+the main menu, admins only); the character screen then lets everybody type the name others see.
 
 - **Off by default.** The setting is `allow_name_edit` in the existing `settings` table (no new
   table, no migration); anything other than `"true"` counts as off.
@@ -329,7 +329,7 @@ the lobby, admins only); the lobby then lets everybody type the name others see.
 - `GET /admin/settings` answers `{allowNameEdit}`; `POST /admin/settings` with
   `{allowNameEdit: true | false}` (a real boolean, else 400) changes it. Admins and the server's own
   tools only: 403 for floor heads and members, 401 without a caller.
-- `GET /account/session` also answers `canEditName` so the lobby knows whether to unlock the field.
+- `GET /account/session` also answers `canEditName` so the character screen knows whether to unlock the field.
   The field is prefilled with the last name the person typed (this browser), or their profile name.
 - A change takes effect for the next person who joins; people already inside keep their name.
 
@@ -368,7 +368,7 @@ the company yet) and shows the right thing, with no second login and no trip to 
 
 | The person is…                           | They see                                                                 |
 | ---------------------------------------- | ------------------------------------------------------------------------ |
-| in the company                           | the office (the lobby)                                                   |
+| in the company                           | the office (the main menu)                                               |
 | not in it                                | "You need an invitation": look for the email, open the link, check again |
 | signed in, company not set up, an admin  | "Set up your company": Clerk's organization list/creation, right there   |
 | signed in, company not set up, not admin | "Your company is not set up yet": wait for the administrator             |
@@ -376,7 +376,7 @@ the company yet) and shows the right thing, with no second login and no trip to 
 The first admin (their verified email is in `ADMIN_EMAILS`) creates the organization from the game;
 the game then tells the server (`POST /account/company`), which checks that the person is an admin
 and really is in that organization, and saves it once: the company is not changed from the game
-afterwards. Admins also get **Invite people** in the lobby (Clerk's members screen, which sends
+afterwards. Admins also get **Invite people** in the Administration of the main menu (Clerk's members screen, which sends
 the invitation emails). Sign-up is part of our own page too (`?mode=sign-up`), so it does not
 send anybody to Clerk's hosted pages.
 
@@ -400,7 +400,7 @@ and they have to sign in a second time. The setting cannot be changed from the A
 
 - **Recorded:** moderation (`moderation.mute|unmute|kick|ban|unban`, with the minutes), a floor closed and opened (`floor.lock|unlock`; carrying on an editing session and heartbeats are not), layouts (`layout.publish|revert|mark`, with the version), heads (`head.assign|remove`, only when something changed), the company setting (`settings.allow_name_edit`) and setting the company up (`company.setup`). Not recorded: people signing in (it would be one row per visit; the `users` table already has `seen_at`).
 - **A log that cannot be written never blocks the action** (it is only reported in the server log): the action already happened.
-- **Read:** `GET /admin/audit?limit=&before=` answers `{entries, nextBefore}`, newest first; `limit` defaults to 50 and is at most 200, `before` is the id of the last entry already seen. Admins and the server's own tools only (403 for heads and members). The lobby's **Activity** screen (admins) shows it as a table with **Load more**; the one-line texts come from `describeAudit` in `shared/audit.ts`.
+- **Read:** `GET /admin/audit?limit=&before=` answers `{entries, nextBefore}`, newest first; `limit` defaults to 50 and is at most 200, `before` is the id of the last entry already seen. Admins and the server's own tools only (403 for heads and members). The **Activity** screen of the main menu (admins) shows it as a table with **Load more**; the one-line texts come from `describeAudit` in `shared/audit.ts`.
 - **Retention:** none; the table only grows (a few rows per editing session or moderation action). _Instead:_ a scheduled `DELETE FROM audit_log WHERE at < ...` (or monthly partitions) in the database provider; no cron in the app.
 
 ### Room calendars
@@ -414,7 +414,7 @@ Goal: people can see what is on in a private room (now, next, the day) so they k
 - **Cache** (`server/calendarService.ts`): a feed is read at most every 5 minutes; if a read fails the last good answer keeps being served (marked stale in the Calendar screen) and the feed is retried after 1 minute. One request is shared between people asking at once.
 - **Parser** (`server/ics.ts`): DTSTART/DTEND/DURATION, all-day events, UTC times, TZID times converted with `Intl` (IANA names and the common Windows names Outlook uses), line folding, escaped text, RRULE DAILY/WEEKLY/MONTHLY with INTERVAL, COUNT, UNTIL, BYDAY (with an ordinal for monthly) and BYMONTHDAY, EXDATE, moved or cancelled single occurrences (RECURRENCE-ID), cancelled events ignored. It expands only a bounded window (2 days back, 7 ahead) and never throws: garbage gives an empty list.
 - **Limits:** a TZID it does not know, and floating times without `X-WR-TIMEZONE`, are read as UTC; YEARLY and other frequencies, RDATE and WKST are ignored (a YEARLY event shows only its first date). Feed changes take up to 5 minutes to show, and the badge refreshes every minute.
-- **Client:** `src/calendar/` (fetch, and pure formatters in the time zone of the viewer via `Intl`), the badge (`CalendarBadge`, main chunk, one line), and two lazy screens: `CalendarView` (menu item **Room calendars**) and `CalendarsAdmin` (lobby button **Calendars**, admins).
+- **Client:** `src/calendar/` (fetch, and pure formatters in the time zone of the viewer via `Intl`), the badge (`CalendarBadge`, main chunk, one line), and two lazy screens: `CalendarView` (menu item **Room calendars**) and `CalendarsAdmin` (**Administration > Calendars** of the main menu, admins).
 - **Test-only flag:** `CALENDAR_ALLOW_LOCAL_FOR_TESTS=1` lets feeds be plain http and on this machine so a local test server can serve an ICS. `calendarOptionsFromEnv` ignores it when `NODE_ENV=production` (tested), and the server prints a warning when it is on.
 - _Instead (later):_ a real Google/Microsoft OAuth integration would give push updates, private calendars without a secret URL and booking from the game. It needs an app registration and credentials per company, token storage and refresh; the room-facing API above would stay the same.
 
@@ -703,11 +703,11 @@ A desk computer shows the **announcements** of the floor it is in; a bookshelf l
 - **Model** (`shared/content.ts`, table `floor_content`, migrations `012_floor_content` and `013_floor_content_floor_index`; two steps because a step is one statement): `id` (uuid text), `floor`, `kind` (`book` or `announcement`, checked by the database), `title`, `author`, `body`, `link`, `pinned`, `position` (next after the highest of its floor and kind), `created_at`, `updated_at`. No foreign key to `floors`: the API checks the floor exists. `ContentStore` has a memory and a Postgres twin (`server/contentStore.ts`, `server/pgContentStore.ts`), tested on both with the same cases.
 - **Limits** (constants in `CONTENT_LIMITS`, tested): title 1 to 80, author 0 to 60 (books only), body 0 to 4000 for a book and 0 to 1000 for an announcement, link optional up to 300 characters, at most 50 books and 50 announcements per floor (the Postgres insert counts and inserts in one statement; the 51st gets 409). Control characters, zero-width and bidirectional format characters are removed; line breaks are kept.
 - **Security:** the text is plain text everywhere. The client renders it as a React text node with `white-space: pre-wrap`: no `dangerouslySetInnerHTML`, no markdown, so `<b>` shows as typed. A link must be an `https://` address without user name or password (`linkProblem`: no `javascript:`, `data:`, `http:`); it is checked on the server when saved and again on the client before it is shown, and opened only when clicked, in a new tab with `rel="noopener noreferrer"`. The audit log records floor, kind and title, never the text or the link.
-- **Policy** (`mayEditContent(actor, floor)` in `server/contentAccess.ts`, the only place): an admin (and the server's own tools) on any floor, the **head of a floor on their own floor**, nobody else. _Choice:_ heads may manage their floor's content, like they already edit their floor's layout. _Alternative:_ admins only, by changing that one function (the lobby button would then also be admin only: `onManageContent` in `AuthRoot`).
+- **Policy** (`mayEditContent(actor, floor)` in `server/contentAccess.ts`, the only place): an admin (and the server's own tools) on any floor, the **head of a floor on their own floor**, nobody else. _Choice:_ heads may manage their floor's content, like they already edit their floor's layout. _Alternative:_ admins only, by changing that one function (the Administration entry would then also be admin only: `onManageContent` in `AuthRoot`).
 - **Reading** (`server/contentRead.ts`, people who may enter the floor: `mayEnterFloor`): `GET /account/floors/<id>/content` answers `{books: [{id, title, author, link?}], announcements: [{id, title, body, link?, pinned, updatedAt}]}` (pinned first, then the most recently changed); the text of a book only comes from `GET /account/floors/<id>/content/<bookId>` (`{book: {..., body}}`), so the list stays small. 401 and 403 as the room list, 403 for a floor they may not enter, 404 for an unknown floor or book (also a book of another floor, or an announcement id).
 - **Writing** (`server/contentAdmin.ts`, same actor and CORS as the other admin APIs; the body limit of these calls is 24,000 characters): `GET /admin/content` lists the floors this caller may edit; `GET /admin/content?floor=<id>` everything on it with the text; `POST /admin/content` `{floor, kind, title, author?, body?, link?, pinned?}` creates (201); `POST /admin/content/<id>` changes the words that are sent and keeps the rest (the floor and kind cannot change; nothing is written or logged if nothing changed); `POST /admin/content/<id>/delete` (or `DELETE /admin/content/<id>`) removes it. 400 for a body that breaks the limits or has unknown fields (answers `{error, errors: {field: message}}`), 403 for somebody who may not edit that floor (a request with no valid sign-in never reaches it: the admin router answers 403 first), 404 unknown floor or id, 409 for the 51st of a kind. Audit actions `content.create`, `content.update`, `content.delete`, described in the Activity screen. No reorder call yet: books keep the order they were made, announcements show pinned first, then newest.
-- **Client:** `src/content/` (fetch and a 30 second memory cache per floor and book, pure form validators that reuse the shared checks, formatters), the lazy chunk `InteractionScreen` (computer: room name, clock and announcements with a Pinned chip, date and link; shelf: list of books and a reader with Back; loading and retry states; F, Esc or Close put it away), and the lazy admin screen `ContentAdmin` (lobby button **Content**: floor selector, Books and Announcements tabs, table with Edit and Delete with confirmation, editor modal with counters). While a computer or a shelf is open the mouse is let go (`panelUsesMouse`) so it can be clicked and scrolled; clicking the scene or pressing F or Esc closes it and takes the mouse back.
-- The lobby button shows for admins and for whoever may edit the room they last were in (`canEdit`); the screen itself asks the server which floors each person may edit. A head who last stood in another room sees the button after entering their own.
+- **Client:** `src/content/` (fetch and a 30 second memory cache per floor and book, pure form validators that reuse the shared checks, formatters), the lazy chunk `InteractionScreen` (computer: room name, clock and announcements with a Pinned chip, date and link; shelf: list of books and a reader with Back; loading and retry states; F, Esc or Close put it away), and the lazy admin screen `ContentAdmin` (**Administration > Content** of the main menu: floor selector, Books and Announcements tabs, table with Edit and Delete with confirmation, editor modal with counters). While a computer or a shelf is open the mouse is let go (`panelUsesMouse`) so it can be clicked and scrolled; clicking the scene or pressing F or Esc closes it and takes the mouse back.
+- The Administration entry shows the button for admins and for whoever may edit the room they last were in (`canEdit`); the screen itself asks the server which floors each person may edit. A head who last stood in another room sees the button after entering their own.
 - _Not done, later:_ rich text (markdown or a small safe subset), images and file uploads (need storage and scanning), reordering, per-book permissions.
 
 ## 7b. Bundle, quality and lite mode
@@ -725,11 +725,49 @@ A phone or tablet whose only pointer is a finger (`(pointer: coarse)` and no `(a
 - **`TouchInput`** (`src/touch/touchInput.ts`, no DOM): what fingers mean. One finger on the joystick (`begin("stick", …)`, measured from the middle of the base by `joystickVector`: 56 px radius, a dead zone of 15%, a push that grows from there, running at 85% of the radius and beyond), one finger on the scene (looking: the drag since the last read, and a **tap** if it lasted under 300 ms and moved under 10 px), each followed by its own pointer id, so two thumbs never mix and a second finger on a thing already held is ignored. `setEnabled(false)` lets go of everything: while the menu, the chat, a map, the calendar or a computer covers the scene (`touchSceneCovered` in `App/helpers.ts`), nothing walks or turns behind it.
 - **The input source.** `Game` reads a `TouchSource` (`intent()`, `takeLook()`, `takeTap()`, `enabled`) every frame, next to the keys: `steering` is "the mouse is captured, or the touch source is enabled", and movement takes the intent of the keys or of the joystick through the same `moveStep` (a gentle push walks slower, a diagonal is no faster, full push to the edge runs). Looking goes through the same `turnView` as the mouse (`yaw -= dx * sensitivity`, `pitch -= dy * sensitivity`, the same pitch clamp and the same limit while seated), with the mouse-sensitivity of the menu times `TOUCH_LOOK_GAIN` (2.5: a finger drags a shorter way than a mouse). There is no invert option for the mouse, so none for touch. A push of the joystick gets a seated person up and puts away what they read, like the first press of W A S D; a tap uses the thing **under the finger** (the tap point is unprojected through the camera into the same `aimedInteractable` the crosshair uses, so reach and walls still apply); the big button does what F does. If the server answers "wait a moment" to a stand-up (it makes sitting and standing 300 ms apart) a touch game asks again after 350 ms, since a button is pressed once.
 - **No pointer lock in touch mode.** `requestLock` does nothing and the click listener is not needed; `App` calls `document.exitPointerLock` through a guard (iOS Safari has no pointer lock API at all). The "Click to control your character" prompt never shows (`showClickPrompt` has a `touch` input); the menu opens from its button instead of from losing the lock (and, unlike Esc, does not stand a seated person up). `shouldDropKeys` and the lock logic are untouched.
-- **The UI** is the lazy chunk `TouchControls` (about 11 kB, 4 kB gzip), downloaded only on a touch device: `TouchPad` (the scene to drag and the joystick: `touch-action: none`, pointer capture, no long-press menu, Safari's `gesturestart` stopped), the column of buttons (HeroUI `Button` and `ToggleButton`, 48 px, the extra ones wrap into a second column in landscape) and the Use / Stand button. Voice and camera appear only when the server offers a call. The chat (`ChatPanel` with `touch`) opens from its button, has a **Send** button and a close button (the virtual keyboard's Enter works too), a 16 px input (iOS zooms the page into a smaller one), and lifts above the keyboard by the height `visualViewport` says it covers (`keyboardInset`, `useKeyboardInset`). Badges at the top left are one column (`HudColumn`) that cannot run into the buttons or the notch; the key hints, the people list (a button now) and the emote key bar are not shown; notices sit in the middle of the screen. The lobby shows gestures instead of keys.
+- **The UI** is the lazy chunk `TouchControls` (about 11 kB, 4 kB gzip), downloaded only on a touch device: `TouchPad` (the scene to drag and the joystick: `touch-action: none`, pointer capture, no long-press menu, Safari's `gesturestart` stopped), the column of buttons (HeroUI `Button` and `ToggleButton`, 48 px, the extra ones wrap into a second column in landscape) and the Use / Stand button. Voice and camera appear only when the server offers a call. The chat (`ChatPanel` with `touch`) opens from its button, has a **Send** button and a close button (the virtual keyboard's Enter works too), a 16 px input (iOS zooms the page into a smaller one), and lifts above the keyboard by the height `visualViewport` says it covers (`keyboardInset`, `useKeyboardInset`). Badges at the top left are one column (`HudColumn`) that cannot run into the buttons or the notch; the key hints, the people list (a button now) and the emote key bar are not shown; notices sit in the middle of the screen. The main menu shows gestures instead of keys.
 - **Page.** `viewport-fit=cover` in `index.html` makes `env(safe-area-inset-*)` real, and everything fixed to an edge uses it; `html.touch-office` (set by `App` on a touch device) stops pull-to-refresh and the tap highlight; `@media (pointer: coarse)` makes every input 16 px; the canvas is `100%` of the (fixed) viewport and `Game` redraws on `resize`, `orientationchange` and a `ResizeObserver`, so the dynamic toolbar and turning the phone are followed.
 - **Quality.** `startAutoQuality(softwareRendering, touch)`: Auto starts on Low on a touch device (pixel ratio capped at 1, no shadows, far people updated one frame in three, simple furniture), and, as always, never goes back up by itself; High is in the menu. _Choice:_ cap 1 (blurry on a 3x phone, but the battery and the GPU are what runs out first). _Alternative:_ a cap of 1.5 for touch in `pixelRatioFor`.
 - **First-run hint** (`TouchHint`, remembered in `localStorage` as `visual-office:touch-hint`, shown again if the browser keeps nothing).
 - **Limits.** One finger looks, one walks; no pinch. The whiteboards cannot be drawn on from touch (they need the held mouse button), and screen sharing does not exist on phones. A tablet with a keyboard but no mouse counts as touch: its keys do nothing in touch mode (`?controls=mouse` is the way out). Everything was seen in an emulated phone, never on a real one (see the README).
+
+## 7e. The first screen: the main menu
+
+What a person sees after signing in (or at once, with no sign-in) is a video-game style menu, not a form.
+`App` keeps the connection phases (`lobby`, `connecting`, `online`, `offline`); the first screen is a
+presentational container, `FirstScreen`, that asks `App` to join through `onJoin(name, look, floor)`.
+
+- **Layout** (`MainMenu`): the title (Sora, large, soft glow) centred at the top, the options on the left,
+  the turning `AvatarPreview` on the right with the name under it and no pickers. The backdrop is CSS only
+  (two glows, a faint floor-plan grid): no second 3D scene. On a portrait phone the preview goes above the
+  options and shrinks (`previewSizeFor`, three sizes of `AvatarPreview`), buttons are 48 px, safe-area
+  insets are respected and the page never scrolls; landscape keeps left and right. The controls hint at the
+  bottom hides on short windows.
+- **Options** (`menuItems`, `adminTools` in `MainMenu/helpers.ts`): **Enter the office**, **Enter a different office**,
+  **Customize character**, **Exit**, always these four in this order; a fifth **Administration** entry exists
+  only when the person has at least one admin tool and opens a modal listing just those (`AdminHandlers`, the
+  same `SignedInUser` callbacks the old lobby buttons used; the admin screens still open on top, from `AuthRoot`).
+  The arrows, Home and End move the focus, Enter presses, the first option is focused on mount.
+- **State machine** (`src/App/firstScreen.ts`, pure, tested first): `menu | customize | rooms | farewell | joining`.
+  Sub-screens open only from the menu; back (Esc, Back, Close) returns to the menu and does nothing while joining;
+  the app's phase drives `joining` (connecting enters it, a failed or ended connection leaves it for the menu,
+  where the message of the old lobby alert is shown). `floorToEnter` picks the room: the last one when it still
+  exists and may be entered, else the common one (the last one is trusted while the list is unknown: the server
+  decides at the door). The reducer refuses the rooms screen with one room or none known (`canTravel`).
+- **Enter a different office:** `RoomsMap` (lazy, with its `ErrorBoundary` + `LoadFailed`) works outside the game
+  with `beforeJoining`: it uses the same `fetchPreviews` request helpers and `/account/floors` list, marks the room last visited ("Last office")
+  and choosing any permitted room, that one too, joins it. With a single office the option is disabled and says
+  _There is only one office_ in a caption (`aria-describedby`), chosen over a hover tooltip because a phone has no hover.
+- **Customize character** (`CharacterScreen`): the name field (read-only with "Your name comes from your account." unless
+  the company allows editing), `AppearancePicker`, Surprise me and the large preview. Changes are saved as they are made
+  (`saveName`, `saveAppearance` in this browser); the server keeps the look of a signed-in person when they join.
+- **Exit:** with sign-in, a confirmation modal ("Leave and sign out?") and `SignedInUser.signOut`, which returns to
+  Clerk's sign-in screen. Without sign-in there is nothing to sign out of and a page cannot close its own tab, so it shows
+  a "See you soon" screen with **Back to the menu**.
+- **`?name=` links** still skip the menu and fall back to it (with the message) when joining fails; leaving the office from the
+  in-game menu returns to the menu. **Lite mode** is unchanged: `AppEntry` still gives a device with no WebGL its own
+  entry screen (`LiteOffice`), so choosing to enter there still ends in lite.
+- **Tests:** `src/App/firstScreen.test.ts`, `src/components/MainMenu/helpers.test.ts`, `e2e/15-main-menu.spec.ts` (and `01-lobby`, `12-operations`).
 
 ## 8. Build order
 

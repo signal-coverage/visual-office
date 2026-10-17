@@ -66,7 +66,7 @@ export function messageForJoinError(error: unknown): string {
   );
 }
 
-/** A name passed in the link (`?name=Ana`) skips the lobby. Handy for invites and testing. */
+/** A name passed in the link (`?name=Ana`) skips the main menu. Handy for invites and testing. */
 export function nameFromUrl(): string | null {
   const name = new URLSearchParams(window.location.search).get("name")?.trim();
   return name || null;

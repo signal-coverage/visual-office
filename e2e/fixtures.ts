@@ -18,7 +18,7 @@ interface Fixtures {
   join: (name: string, options?: JoinOptions) => Promise<OfficePlayer>;
   /** Brings somebody in with a phone: touch only, no keyboard, no mouse. Everybody who came in is sent home when the test ends. */
   joinPhone: (name: string, options?: PhoneOptions) => Promise<PhonePlayer>;
-  /** Opens a page of the app as somebody new, for what happens before the office (the lobby, the lite screen). */
+  /** Opens a page of the app as somebody new, for what happens before the office (the main menu, the lite screen). */
   open: (path: string, options?: PageOptions) => Promise<Page>;
 }
 

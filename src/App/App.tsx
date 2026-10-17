@@ -54,13 +54,13 @@ import { ClosingBanner } from "../components/ClosingBanner";
 import { DebugOverlay } from "../components/DebugOverlay";
 import { EmoteBar } from "../components/EmoteBar";
 import { ErrorBoundary } from "../components/ErrorBoundary";
+import { FirstScreen } from "../components/FirstScreen";
 import { FloorBadge } from "../components/FloorBadge";
 import { GameMenu } from "../components/GameMenu";
 import { HudColumn } from "../components/HudColumn";
 import { InteractHint } from "../components/InteractHint";
 import { LoadFailed } from "../components/LoadFailed";
 import { LOAD_FAILED } from "../components/LoadFailed/consts";
-import { LobbyScreen } from "../components/LobbyScreen";
 import { ScreenShareBadge } from "../components/ScreenShareBadge";
 import { SelfView } from "../components/SelfView";
 import { StatusDot } from "../components/StatusDot";
@@ -205,9 +205,8 @@ export function App({ signedIn, controls = "mouse" }: AppProps) {
   const [floors, setFloors] = useState<FloorInfo[] | null>(null);
   const floorsRef = useRef<FloorInfo[] | null>(null);
   /** The room to enter from the first screen: the one in the link, else the last one entered, else the common one. */
-  const selectedFloor = useRef(
-    floorFromSearch(window.location.search) ?? COMMON_FLOOR_ID,
-  );
+  const [linkFloor] = useState(() => floorFromSearch(window.location.search));
+  const selectedFloor = useRef(linkFloor ?? COMMON_FLOOR_ID);
   /** The room the player asked to travel to: the disconnection that follows is not an error. */
   const travelTo = useRef<string | null>(null);
   /** After a server restart: which try at joining again this is, or null when the game is not waiting for the server to come back. */
@@ -404,9 +403,12 @@ export function App({ signedIn, controls = "mouse" }: AppProps) {
       ),
     [tokenOf],
   );
+  /** With ?name= in the link the first screen is skipped, except when joining fails or after leaving. */
+  const firstScreenShown =
+    phase !== "online" && (!urlName || hasLeft || phase === "offline");
   useEffect(() => {
-    if (phase === "online" || menuOpen) loadFloors();
-  }, [phase, menuOpen, loadFloors]);
+    if (phase === "online" || menuOpen || firstScreenShown) loadFloors();
+  }, [phase, menuOpen, firstScreenShown, loadFloors]);
 
   /** `openMap`, for the game's key callback (made once, when joining) to call now. */
   const openMapRef = useRef<() => void>(() => {});
@@ -963,31 +965,38 @@ export function App({ signedIn, controls = "mouse" }: AppProps) {
           )}
         </>
       ) : (
-        // With ?name= in the link the lobby is skipped, except when joining fails or after leaving
-        (!urlName || hasLeft || phase === "offline") && (
-          <LobbyScreen
+        firstScreenShown && (
+          <FirstScreen
             phase={phase}
-            initialName={urlName ?? (savedName || signedIn?.displayName || "")}
+            initialName={
+              name || (urlName ?? (savedName || signedIn?.displayName || ""))
+            }
             fixedName={
               signedIn?.canEditName
                 ? undefined
                 : signedIn?.displayName || undefined
             }
-            accountMenu={signedIn?.accountMenu}
-            onEditFloor={signedIn?.onEditFloor}
-            onManagePeople={signedIn?.onManagePeople}
-            onInvitePeople={signedIn?.onInvitePeople}
-            onOpenSettings={signedIn?.onOpenSettings}
-            onOpenActivity={signedIn?.onOpenActivity}
-            onOpenCalendars={signedIn?.onOpenCalendars}
-            onManageRooms={signedIn?.onManageRooms}
-            onManageGroups={signedIn?.onManageGroups}
-            onManageContent={signedIn?.onManageContent}
-            roomName={floor && floor.id !== COMMON_FLOOR_ID ? floor.name : null}
             initialAppearance={look}
             message={message}
-            onJoin={join}
+            floors={floors}
+            lastFloor={floor?.id ?? linkFloor ?? COMMON_FLOOR_ID}
+            getToken={tokenOf}
+            accountMenu={signedIn?.accountMenu}
+            admin={{
+              onEditFloor: signedIn?.onEditFloor,
+              onManagePeople: signedIn?.onManagePeople,
+              onInvitePeople: signedIn?.onInvitePeople,
+              onOpenSettings: signedIn?.onOpenSettings,
+              onOpenActivity: signedIn?.onOpenActivity,
+              onOpenCalendars: signedIn?.onOpenCalendars,
+              onManageRooms: signedIn?.onManageRooms,
+              onManageGroups: signedIn?.onManageGroups,
+              onManageContent: signedIn?.onManageContent,
+            }}
+            onSignOut={signedIn?.signOut}
             touch={touch}
+            onJoin={join}
+            onRefreshFloors={loadFloors}
           />
         )
       )}

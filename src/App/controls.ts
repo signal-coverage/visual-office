@@ -1,4 +1,4 @@
-/** The keys and what they do: shown in the lobby and in the menu. */
+/** The keys and what they do: shown on the main menu and in the menu. */
 export const CONTROLS: ReadonlyArray<readonly [keys: string, action: string]> =
   [
     ["W A S D", "Move"],

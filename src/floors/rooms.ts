@@ -10,8 +10,13 @@ export function sortRooms(floors: readonly FloorInfo[]): FloorInfo[] {
 }
 
 /** What a card is called for somebody who cannot see it. */
-export function cardLabel(floor: FloorInfo, here: boolean): string {
-  if (here) return `${floor.name}, you are here`;
+export function cardLabel(
+  floor: FloorInfo,
+  here: boolean,
+  lastVisit = false,
+): string {
+  if (here)
+    return `${floor.name}, ${lastVisit ? "your last office" : "you are here"}`;
   if (!floor.canEnter)
     return `${floor.name}, not available. ${MAP_UNAVAILABLE_TEXT}`;
   return `Go to ${floor.name}`;

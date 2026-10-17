@@ -1,11 +1,14 @@
 import { test, expect } from "./fixtures";
 
-test.describe("lobby", () => {
-  test("shows the name field and the five tabs of the character, and a shirt picked there is the look worn in the office", async ({
+test.describe("first screen", () => {
+  test("loads the main menu, and Customize character shows the name field and the five tabs; a shirt picked there is the look worn in the office", async ({
     open,
   }) => {
     const page = await open("/?e2e");
-    await expect(page.getByRole("heading", { name: "Lobby" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Visual Office" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Customize character" }).click();
     await expect(page.getByLabel("Your name")).toBeVisible();
 
     const tabs = page.getByRole("tablist", { name: "Character options" });
@@ -18,7 +21,8 @@ test.describe("lobby", () => {
     await expect(shirt).toHaveAttribute("aria-selected", "true");
 
     await page.getByLabel("Your name").fill("Ana");
-    await page.getByRole("button", { name: "Enter office" }).click();
+    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: "Enter the office" }).click();
     await expect(
       page.getByRole("button", { name: "Menu (Esc)" }),
     ).toBeVisible();
@@ -31,6 +35,7 @@ test.describe("lobby", () => {
 
   test("dragging the preview turns the character by hand", async ({ open }) => {
     const page = await open("/?e2e");
+    await page.getByRole("button", { name: "Customize character" }).click();
     const preview = page.getByRole("img", { name: "Your character" });
     await expect(preview.locator("canvas")).toBeVisible();
     const box = (await preview.boundingBox())!;
@@ -55,8 +60,10 @@ test.describe("lobby", () => {
 
   test("enters the office with the typed name", async ({ open }) => {
     const page = await open("/?e2e");
+    await page.getByRole("button", { name: "Customize character" }).click();
     await page.getByLabel("Your name").fill("Beto");
-    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: "Enter the office" }).click();
     await expect(
       page.getByRole("button", { name: "Menu (Esc)" }),
     ).toBeVisible();

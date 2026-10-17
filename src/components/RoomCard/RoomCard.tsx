@@ -2,7 +2,7 @@ import { Button } from "@heroui/react";
 import { MAP_UNAVAILABLE_TEXT } from "../../floors/consts";
 import { drawPreview } from "../../floors/previewDraw";
 import { cardLabel } from "../../floors/rooms";
-import { CARD_PADDING, CARD_SIZE, HERE_LABEL } from "./consts";
+import { CARD_PADDING, CARD_SIZE, HERE_LABEL, LAST_LABEL } from "./consts";
 import * as styles from "./styles";
 import type { RoomCardProps } from "./types";
 
@@ -11,7 +11,13 @@ import type { RoomCardProps } from "./types";
  * pointed at or focused and the person may enter. A room they may not enter
  * stays grey and says so. It only asks to go: the server decides at the door.
  */
-export function RoomCard({ floor, here, preview, onSelect }: RoomCardProps) {
+export function RoomCard({
+  floor,
+  here,
+  lastVisit = false,
+  preview,
+  onSelect,
+}: RoomCardProps) {
   const { width, height, rects } = drawPreview(
     preview,
     CARD_SIZE,
@@ -21,7 +27,7 @@ export function RoomCard({ floor, here, preview, onSelect }: RoomCardProps) {
     <Button
       variant="ghost"
       className={styles.card(here)}
-      aria-label={cardLabel(floor, here)}
+      aria-label={cardLabel(floor, here, lastVisit)}
       onPress={onSelect}
       data-room={floor.id}
     >
@@ -46,7 +52,7 @@ export function RoomCard({ floor, here, preview, onSelect }: RoomCardProps) {
       </span>
       {here && (
         <span className={styles.here} aria-hidden="true">
-          {HERE_LABEL}
+          {lastVisit ? LAST_LABEL : HERE_LABEL}
         </span>
       )}
       {!floor.canEnter && (

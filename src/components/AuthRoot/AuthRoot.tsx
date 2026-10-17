@@ -86,7 +86,7 @@ function MemberApp({ member }: { member: Member }) {
   const [roomsOpen, setRoomsOpen] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [contentOpen, setContentOpen] = useState(false);
-  // The editor of the lobby is the one of the room the player was last in (the common one at first)
+  // The editor of the main menu is the one of the room the player was last in (the common one at first)
   const [floor, setFloor] = useState(
     () => floorFromSearch(window.location.search) ?? COMMON_FLOOR_ID,
   );

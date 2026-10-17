@@ -18,6 +18,7 @@ import type { RoomsMapProps } from "./types";
 export function RoomsMap({
   floors,
   current,
+  beforeJoining = false,
   getToken,
   onTravel,
   onClose,
@@ -57,7 +58,7 @@ export function RoomsMap({
   };
 
   const select = (id: string, canEnter: boolean) => {
-    if (id === current) onClose();
+    if (id === current && !beforeJoining) onClose();
     else if (canEnter) onTravel(id);
   };
 
@@ -90,6 +91,7 @@ export function RoomsMap({
                   <RoomCard
                     floor={floor}
                     here={floor.id === current}
+                    lastVisit={beforeJoining}
                     preview={
                       previews?.find((plan) => plan.id === floor.id) ?? null
                     }

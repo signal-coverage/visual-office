@@ -1,18 +1,18 @@
 import type { ReactNode } from "react";
 import type { Appearance } from "../../shared/appearance.ts";
 import type { ControlsMode } from "../lite/device";
-/** lobby: name screen · connecting: joining · online: playing · offline: failed or dropped */
+/** lobby: the first screen (main menu) · connecting: joining · online: playing · offline: failed or dropped */
 export type Phase = "lobby" | "connecting" | "online" | "offline";
 
 /** Somebody who signed in, as the app needs to know them. */
 export interface SignedInUser {
-  /** The name of their profile: the server uses it, whatever the lobby shows. */
+  /** The name of their profile: the server uses it, whatever the menu shows. */
   displayName: string;
-  /** Whether the company lets them choose their name: the lobby then lets them type it. */
+  /** Whether the company lets them choose their name: the character screen then lets them type it. */
   canEditName?: boolean;
   /** A fresh proof of who they are (it lasts about a minute), or null if there is none. */
   getToken: () => Promise<string | null>;
-  /** Their account menu (to sign out), shown in the lobby. */
+  /** Their account menu (to sign out), shown on the main menu. */
   accountMenu?: ReactNode;
   /** How they looked last time (kept on the server), or nothing if they never chose. */
   appearance?: Appearance | null;
@@ -36,7 +36,7 @@ export interface SignedInUser {
   onManageGroups?: () => void;
   /** Opens where the books and announcements of the computers and shelves are set: only for admins and heads of floors. */
   onManageContent?: () => void;
-  /** The player is in this room (its id) now: the editor offered on the first screen is the one of the last room they were in. */
+  /** The player is in this room (its id) now: the editor offered in the main menu is the one of the last room they were in. */
   onFloorChange?: (floor: string) => void;
 }
 

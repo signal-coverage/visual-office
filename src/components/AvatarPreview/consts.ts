@@ -1,5 +1,6 @@
-/** The frame of the preview, by size: the small one fits beside the pickers, the large one is the lobby's. */
+/** The frame of the preview, by size: the small one fits beside the pickers, the large one is the customization screen's. */
 export const PREVIEW_SIZES = {
+  medium: { width: 210, height: 330 },
   small: { width: 140, height: 224 },
   large: { width: 280, height: 440 },
 } as const;

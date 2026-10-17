@@ -33,6 +33,15 @@ describe("cardLabel", () => {
     expect(cardLabel(room("lab", { name: "Lab" }), false)).toBe("Go to Lab");
   });
 
+  it("says which room was the last one, outside the game", () => {
+    expect(cardLabel(room("lab", { name: "Lab" }), true, true)).toBe(
+      "Lab, your last office",
+    );
+    expect(cardLabel(room("lab", { name: "Lab" }), false, true)).toBe(
+      "Go to Lab",
+    );
+  });
+
   it("says which room is the one you are in", () => {
     expect(cardLabel(room("lab", { name: "Lab" }), true)).toBe(
       "Lab, you are here",

@@ -45,7 +45,9 @@ test.describe("operations", () => {
     const urls: string[] = [];
     page.on("request", (request) => urls.push(request.url()));
     await page.goto("/?e2e");
-    await expect(page.getByRole("heading", { name: "Lobby" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Visual Office" }),
+    ).toBeVisible();
     await page.waitForTimeout(1500);
     await context.close();
     expect(urls.filter((url) => /sentryClient|sentry\.io/i.test(url))).toEqual(
